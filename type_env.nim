@@ -50,6 +50,7 @@ proc matchOrDefault*(t: var TypeEnv, title: string, args: seq[Type]): Type =
             for predefined in top.predefined.mitems:
               if predefined.function == title:
                 predefined.called = true
+                break
             return candidate
   return nil
 

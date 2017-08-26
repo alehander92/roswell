@@ -1,6 +1,13 @@
 import triplet, ast, core, types, env, errors
 import strutils, sequtils
 
+type
+  A* = ref object of RootObj
+    a*: int
+
+  B* = ref object of A
+    b*: int
+
 proc convertFunction*(node: Node, module: var TripletModule): TripletFunction
 
 proc convert*(ast: Node): TripletModule =
@@ -9,6 +16,7 @@ proc convert*(ast: Node): TripletModule =
     raise newException(RoswellError, "undefined program")
   for function in ast.functions:
     module.functions.add(convertFunction(function, module))
+  module.predefined = ast.predefined
   echo module
   result = module
 
@@ -35,10 +43,10 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
   of ACall:
     if node.function.kind == ALabel:
       var args = node.args.mapIt(convertNode(it, module, function))
-      for arg in args:
+      for j, arg in args:
         if arg == nil:
           raise newException(RoswellError, "arg empty")
-        append Triplet(kind: TArg, source: arg)
+        append Triplet(kind: TArg, source: arg, i: j)
       var f = module.newTemp()
       append Triplet(kind: TCall, f: f, function: node.function.s, count: len(args))
       result = f
@@ -97,6 +105,7 @@ proc convertFunction*(node: Node, module: var TripletModule): TripletFunction =
     raise newException(RoswellError, "undefined function")
   if node.types.kind != Complex:
     raise newException(RoswellError, "undefined type")
+  var b = B(a: 2)
   var res = TripletFunction(label: node.label, triplets: @[])
   convertParams(node.params, node.types.args, module, res)
   discard convertNode(node.code, module, res)

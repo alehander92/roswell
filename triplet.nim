@@ -1,4 +1,4 @@
-import ast, env, errors, helpers
+import ast, env, type_env, errors, helpers
 import tables, strutils, sequtils
 
 type
@@ -25,6 +25,7 @@ type
       label*:       string
     of TArg:
       source*:      TripletAtom
+      i*:           int
     of TParam:
       index*:       int
       memory*:      TripletAtom
@@ -59,6 +60,7 @@ type
     env*:     Env[int]
     temps*:   int
     labels*:  int
+    predefined*: seq[Predefined]
 
 proc render*(t: TripletAtom, depth: int): string =
   result = repeat("  ", depth)
@@ -117,6 +119,7 @@ proc render*(triplet: Triplet, depth: int): string =
   of TArg:
     first = "ARG"
     second = $triplet.source
+    third = $triplet.i
     equal = false
   of TParam:
     first = "PARAM"

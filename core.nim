@@ -1,9 +1,15 @@
 const displayDefinition* = """
-MOVL   -16(%rbp),          %edx
-MOVL   -8(%rbp),           %ecx
-MOVL   $1,                 %ebx
-MOVL   $4,                 %eax
-INT    $0x80
+MOVQ    -8(%rbp),       %rsp        # int* rsp = *((**int)rbp - 8)
+MOVL    (%rsp),         %edx
+MOVL    4(%rsp),        %ecx
+MOVL    $1,             %ebx
+MOVL    $4,             %eax
+INT     $0x80
+MOVL    $2,             %edx
+MOVL    $nl,            %ecx
+MOVL    $1,             %ebx
+MOVL    $4,             %eax
+INT     $0x80
 """
 
 const displayIntDefinition* = """

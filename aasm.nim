@@ -24,9 +24,9 @@ type
     label*:   string
     opcodes*: seq[Opcode]
 
-  Register* = enum AL, CL, DL, EAX, EBX, ESI, R10, R11, R12, R13, R14, R15, RBP, RSP, RBX, RDI, RSI, RDX, ECX, EDX, B, C
+  Register* = enum AL, CL, DL, EAX, EBX, ESI, R10, R11, R12, R13, R14, R15, RBP, RSP, RBX, RDI, RSI, RDX, ECX, EDX, EDI, RAX, RCX
 
-  OpcodeKind* = enum MOV, ADD, SUB, DIVL, INT, PUSHQ, POPQ, SUBQ, CALL, RET, COMMENT, INLINE, LABEL, JNE, JMP, CMP, A
+  OpcodeKind* = enum MOV, ADD, SUB, DIVL, INT, PUSHQ, POPQ, SUBQ, CALL, RET, COMMENT, INLINE, LABEL, JNE, JE, JG, JGE, JL, JLE, JMP, CMP, A
 
   MovSuffix* = enum MOVQ, MOVB, MOVL, MOVW
 
@@ -43,7 +43,7 @@ type
       arg*:         int
     of PUSHQ, POPQ, DIVL:
       value*:       Operand
-    of CALL, COMMENT, JNE, JMP, LABEL, A:
+    of CALL, COMMENT, JNE, JE, JG, JGE, JL, JLE, JMP, LABEL, A:
       label*:       string
     of INLINE:
       code*:        string
@@ -71,5 +71,5 @@ type
 
 
 proc reg*(register: Register): Operand =
-  return Operand(kind: OpRegister, register: register)
+  result = Operand(kind: OpRegister, register: register)
 

@@ -1,8 +1,7 @@
-import aasm
+import aasm, helpers
 import strutils, sequtils
 
 
-proc leftAlign(a: string, count: Natural, padding = ' '): string
 proc toBinary*(b: AsmModule): string
 proc toBinary(node: DataItem): string
 proc toBinary(node: TextItem): string
@@ -70,10 +69,3 @@ proc toBinary(opcode: Opcode): string =
   else:
     ""
   result.add(arg)
-
-proc leftAlign(a: string, count: Natural, padding: char): string =
-  result = a
-  let b: int = len(a)
-  if b < count:
-    result.add(padding.repeat(count - b))
-

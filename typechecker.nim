@@ -1,4 +1,4 @@
-import ast, env, types, top, errors
+import ast, type_env, types, top, errors
 import tables, strutils, sequtils
 
 proc typecheckNode(node: Node, env: var TypeEnv): Node

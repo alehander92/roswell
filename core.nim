@@ -6,6 +6,10 @@ MOVL   $4,                 %eax
 INT    $0x80
 """
 
+const displayIntDefinition* = """
+MOVL  -16(%rbp),           %edx
+"""
+
 const exitDefinition* = """
 MOVL   $1,                 %eax
 MOVL   $0,                 %ebx

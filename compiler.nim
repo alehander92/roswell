@@ -1,8 +1,8 @@
-import parser, typechecker, aasm, emitter, top, binary
+import parser, typechecker, "converter", aasm, emitter, top, binary
 import strutils, osproc
 
 proc compile*(source: string): AsmModule =
-  return emit(typecheck(parse(source), TOP_ENV))
+  return emit(convert(typecheck(parse(source), TOP_ENV)))
 
 proc compileFile*(code: string, binary: string) =
   var program = compile(readFile(code))

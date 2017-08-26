@@ -1,7 +1,7 @@
-import env, types, core
+import type_env, types, core
 import tables
 
-var TOP_ENV* = newEnv(nil)
+var TOP_ENV* = type_env.newEnv(nil)
 
 var intType* =                      Type(kind: Simple, label: "Int")
 var stringType* =                   Type(kind: Simple, label: "String")

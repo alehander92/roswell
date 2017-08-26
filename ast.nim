@@ -1,10 +1,10 @@
 import types, strutils, sequtils
-import env
+import type_env
 
 type
   DebugFlag* = distinct bool
 
-  Operator* = enum OpAnd, OpOr, OpEq, OpMod, OpAdd, OpSub, OpMul, OpDiv
+  Operator* = enum OpAnd, OpOr, OpEq, OpMod, OpAdd, OpSub, OpMul, OpDiv, OpNotEq, OpGt, OpGte, OpLt, OpLte, OpXor
 
   NodeKind* = enum AProgram, AGroup, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AOperator, AType, AReturn, AIf, AAssignment, ADefinition, AMember
 
@@ -64,7 +64,13 @@ let OPERATOR_SYMBOLS*: array[Operator, string] = [
   "+",    # OpAdd
   "-",    # OpSub
   "*",    # OpMul
-  "/"     # OpDiv
+  "/",    # OpDiv
+  "!=",   # OpNotEq
+  ">",    # OpGt
+  ">=",   # OpGte
+  "<",    # OpLt
+  "<=",   # OpLte
+  "^"     # OpXor
 ]
 
 

@@ -1,4 +1,4 @@
-import errors
+import env, errors
 import tables, strutils
 
 type
@@ -7,7 +7,7 @@ type
     data*:      seq[DataItem]
     functions*: seq[TextItem]
     labels*:    int
-    env*:       AsmEnv
+    env*:       Env[Operand]
     active*:    Operand
 
   DataItemKind* = enum DataInt, DataString
@@ -72,28 +72,4 @@ type
 
 proc reg*(register: Register): Operand =
   return Operand(kind: OpRegister, register: register)
-
-proc getOrDefault*(a: AsmEnv, name: string): Operand
-
-proc `[]`*(a: AsmEnv, name: string): Operand =
-  result = getOrDefault(a, name)
-  if result == nil:
-    raise newException(RoswellError, "undefined $1" % name)
-
-proc `[]=`*(a: var AsmEnv, name: string, operand: Operand) =
-  a.locations[name] = operand
-
-proc getOrDefault*(a: AsmEnv, name: string): Operand =
-  var last = a
-  while last != nil:
-    if last.locations.hasKey(name):
-      return last.locations[name]
-    last = last.parent
-  result = nil
-
-proc newEnv*(a: AsmEnv): AsmEnv =
-  result = AsmEnv(locations: initTable[string, Operand](), parent: a)
-  result.top = if a == nil: result else: a.top
-
-
 

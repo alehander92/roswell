@@ -1,0 +1,7 @@
+roswell
+nimcache/
+tests/*.out
+tests/a
+tests/b
+tests/play
+tests/name

@@ -1,0 +1,5 @@
+def play:
+  display('play')
+
+def main:
+  play()

@@ -1,0 +1,13 @@
+Int -> Int
+def name(a):
+  if ==(%(a 2) 0):
+    display('even')
+    return 0
+  else:
+    display('odd')
+    return 1
+
+def main:
+  var a = name(2)
+  display(a)
+

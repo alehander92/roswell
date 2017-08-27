@@ -1,7 +1,7 @@
 import ast, errors, types
-import tables, strutils, sequtils
+import tables, strutils, sequtils, terminal
 
-const test = true
+const test = false
 
 proc a(source: string): string
 
@@ -40,8 +40,8 @@ template raw(a: untyped): untyped =
 template testLog(a: untyped): untyped =
   when test: echo repeat("  ", depth) & "parse" & `a` & ":" & buffer
 
-proc parse*(source: string): Node =
-  result = Node(kind: AProgram, name: "", functions: @[])
+proc parse*(source: string, name: string): Node =
+  result = Node(kind: AProgram, name: name, functions: @[])
   decl
   left = a(source)
   var success2 = false
@@ -50,7 +50,7 @@ proc parse*(source: string): Node =
     if success:
       result.functions.add(node)
       (success2, left, z) = parseNl(left, 0)
-  when test: echo result
+  styledWriteLine(stdout, fgGreen, "PARSE\n", $result, resetStyle)
   if len(left) > 0:
     raise newException(RoswellError, "left: '$1'" % left)
 
@@ -162,7 +162,6 @@ proc parseArgs(buffer: string, depth: int = 0): (bool, string, Node) =
     raw("(")
     if success:
       while true:
-        echo "%%", left[0]
         (success, left, node) = parseLabel(left, depth + 1)
         if success and node.kind == ALabel:
           f.params.add(node.s)

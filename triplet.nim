@@ -1,4 +1,4 @@
-import ast, env, type_env, errors, helpers
+import ast, env, type_env, types, errors, helpers
 import tables, strutils, sequtils
 
 type
@@ -44,6 +44,7 @@ type
 
   TripletAtom* = ref object
     triplet*: Triplet
+    typ*: Type
     case kind*: TripletAtomKind
     of ULabel:
       label*: string
@@ -51,8 +52,10 @@ type
       node*: Node
 
   TripletFunction* = object
-    label*:     string
-    triplets*:  seq[Triplet]
+    label*:       string
+    triplets*:    seq[Triplet]
+    paramCount*:  int 
+    locals*:      int
 
   TripletModule* = object
     file*:    string
@@ -79,8 +82,9 @@ proc render*(t: TripletAtom, depth: int): string =
       result.add($t.node.b)
     else:
       result.add($t.node)
-
-
+  if t.kind != ULabel or t.label != "_":
+    result.add(" %")
+    result.add(simpleType(t.typ))
 
 proc `$`*(t: TripletAtom): string
 
@@ -104,6 +108,7 @@ proc render*(triplet: Triplet, depth: int): string =
     third = $triplet.u
     equal = true
   of TSave:
+
     first = $triplet.target
     second = $triplet.value
     equal = true
@@ -142,12 +147,12 @@ proc render*(triplet: Triplet, depth: int): string =
     first = "INLINE"
     second = triplet.code[0..<10]
     equal = false
-  result.add(leftAlign(first, 8, ' '))
+  result.add(leftAlign(first, 18, ' '))
   if equal:
     result.add("= ")
   else:
     result.add("  ")
-  result.add(leftAlign(second, 10, ' '))
+  result.add(leftAlign(second, 20, ' '))
   if len(third) > 0:
     result.add(leftAlign(third, 10, ' '))
   if len(fourth) > 0:
@@ -170,5 +175,5 @@ proc `$`*(triplet: Triplet): string =
 proc `$`*(t: TripletAtom): string =
   result = render(t, 0)
 
-proc uLabel*(label: string, triplet: Triplet = nil): TripletAtom =
-  result = TripletAtom(kind: ULabel, label: label, triplet: triplet)
+proc uLabel*(label: string, typ: Type, triplet: Triplet = nil): TripletAtom =
+  result = TripletAtom(kind: ULabel, label: label, typ: typ, triplet: triplet)

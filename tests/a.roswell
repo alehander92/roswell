@@ -8,6 +8,6 @@ def name(a):
     return 1
 
 def main:
-  var a = name(2)
-  display(a)
+  name(2)
+
 

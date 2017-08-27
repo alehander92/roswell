@@ -5,7 +5,7 @@ proc emitPredefined(node: Predefined, module: var AsmModule): TextItem
 proc emitFunction(node: TripletFunction, module: var AsmModule): TextItem
 
 proc emit*(a: TripletModule): AsmModule =
-  var module = AsmModule(file: a.file, data: @[], functions: @[], labels: 0, env: env.newEnv[Operand](nil), active: reg(EAX))
+  var module = AsmModule(file: a.file, data: @[], functions: @[], labels: 0, env: env.newEnv[Operand](nil))
   module.data.add(DataItem(kind: DataString, b: "\\n", label: "nl"))
   module.data.add(DataItem(kind: DataInt, a: 10, label: "i"))
   for node in a.predefined:
@@ -17,6 +17,10 @@ proc emit*(a: TripletModule): AsmModule =
 
 template em(opcode: untyped): untyped =
   function.opcodes.add(`opcode`)
+
+
+# template for easy
+
 
 proc storeData(node: Node, module: var AsmModule): string =
   var item: DataItem
@@ -30,47 +34,109 @@ proc storeData(node: Node, module: var AsmModule): string =
   module.data.add(item)
   return item.label
 
-proc loadMov(node: TripletAtom, destination: Operand): MovSuffix =
-  if destination.kind == OpRegister:
-    if destination.register in {EAX, EBX, ECX, EDX}:
-      echo $destination.register
-      return MOVL
-    elif destination.register in {RDI}:
-      echo "LOAD:"
-      return MOVQ
-  if node == nil:
-    return MOVL
-  elif node.kind == ULabel:
-    return MOVL
-  elif node.kind == UConstant:
-    if node.node.kind == AInt:
-      return MOVL
-    elif node.node.kind == AString:
-      return MOVQ
-    elif node.node.kind == ABool:
-      return MOVB
-  return MOVL
+proc freeRegister(function: var TextItem, size: Size): (bool, Register) =
+  for r in SIZE_REGISTERS[size]:
+    if function.available[r]:
+      return (true, r)
+  return (false, RAX)
+
+proc loadLocation(function: var TextItem, module: AsmModule, label: string, size: Size): Operand =
+  var location = module.env.getOrDefault(label)
+  if location == nil:
+    var (free, register) = freeRegister(function, size)
+    if free:
+      location = reg(register)
+      function.available[register] = false
+    else:
+      location = Operand(kind: OpAddressRange, offset: -8 * function.index, arg: reg(RBP))
+      inc function.index
+    module.env[label] = location
+  result = location
+
+proc loadSize(typ: Type): Size
+
+proc translate(node: TripletAtom, module: AsmModule, function: var TextItem): Operand =
+  case node.kind:
+  of ULabel:
+    var size = loadSize(node.typ)
+    result = loadLocation(function, module, node.label, size)
+  of UConstant:
+    var value = case node.node.kind:
+    of AInt:
+      $node.node.value
+    of AFloat:
+      $node.node.f
+    of AString:
+      node.node.s
+    of ABool:
+      if node.node.b: "1" else: "0"
+    else:
+      ""
+    result = Operand(kind: OpConstant, value: value)
+
+proc loadSize(typ: Type): Size =
+  case typ.kind:
+  of Simple:
+    case typ.label:
+    of "Int":
+      return SIZEDOUBLEWORD
+    of "Float":
+      return SIZEQUADWORD
+    of "String":
+      return SIZEDOUBLEWORD
+    of "Bool":
+      return SIZEBYTE
+    else:
+      return SIZEDOUBLEWORD
+  else:
+    return SIZEDOUBLEWORD
+
+proc loadMov(size: Size, destination: Operand): MovSuffix =
+  return MovSuffix(int(size))
 
 let ARG_LOCATIONS = @[
   reg(RDI),
-  reg(RSI)
+  reg(RSI),
+  reg(RDX),
+  reg(RCX),
+  reg(R8),
+  reg(R9)
 ]
 
-proc emitAtom(atom: TripletAtom, module: var AsmModule, function: var TextItem, destination: Operand)
+proc emitAtom(atom: TripletAtom, module: var AsmModule, function: var TextItem, destination: Operand, q: bool = false)
 
 proc emitF(source: TripletAtom, i: int, module: var AsmModule, function: var TextItem) =
-  emitAtom(source, module, function, ARG_LOCATIONS[i])
+  emitAtom(source, module, function, ARG_LOCATIONS[i], q=true)
+
+proc emitAtom(source: TripletAtom, module: var AsmModule, function: var TextItem, destination: TripletAtom) =
+  if destination.kind != ULabel: return
+  var size = loadSize(destination.typ)
+  var mov = loadMov(size, reg(SI))
+  var dest = loadLocation(function, module, destination.label, size)
+  emitAtom(source, module, function, dest)
 
 proc emitAtom(source: Operand, module: var AsmModule, function: var TextItem, atom: TripletAtom) =
-  var mov = loadMov(atom, source)
-  em Opcode(kind: MOV, mov: mov, source: source, destination: reg(EAX))
+  if atom.kind != ULabel: return
+  var size = loadSize(atom.typ)
+  var mov = loadMov(size, source)
+  var location = loadLocation(function, module, atom.label, size)
+  em Opcode(kind: MOV, mov: mov, source: source, destination: location)
   # save
 
-proc emitAtom(atom: TripletAtom, module: var AsmModule, function: var TextItem, destination: Operand) =
-  var mov = loadMov(atom, destination)
+proc emitAtom(atom: TripletAtom, module: var AsmModule, function: var TextItem, destination: Operand, q: bool = false) =
+  # emitAtom moves values from source to destination
+  # the destination might be passed as an arg
+  # if it's not we move the value to a register or a place on the stack depending on its type
+  # we add the suffix of move based on the type
+  # an env holds the locations of the local variables
+  # an array holds if a register is available
+  # an index holds the next free stack
+  var size = if q: SIZEQUADWORD else: loadSize(atom.typ)
+  var mov = loadMov(size, destination)
   case atom.kind:
   of ULabel:
-    em Opcode(kind: MOV, mov: mov, source: Operand(kind: OpConstant, value: $atom.label), destination: destination)
+    var location = loadLocation(function, module, atom.label, size)
+    em Opcode(kind: MOV, mov: mov, source: location, destination: destination)      
   of UConstant:
     case atom.node.kind:
     of AInt:
@@ -89,24 +155,33 @@ proc emitAtom(atom: TripletAtom, module: var AsmModule, function: var TextItem, 
       em Opcode(kind: MOV, mov: MOVL, source: Operand(kind: OpConstant, value: $(len(atom.node.s) + 15)), destination: reg(EDI))
       em Opcode(kind: CALL, label: "malloc")
       em Opcode(kind: MOV, mov: MOVL, source: Operand(kind: OpConstant, value: $(len(atom.node.s) + 1)), destination: Operand(kind: OpAddress, address: reg(RAX)))
-      em Opcode(kind: MOV, mov: MOVL, source: Operand(kind: OpConstant, value: s), destination: Operand(kind: OpAddressRange, arg: reg(RAX), offset: 4))
+      em Opcode(kind: MOV, mov: MOVL, source: Operand(kind: OpConstant, value: s), destination: Operand(kind: OpAddressRange, offset: 4, arg: reg(RAX)))
+      em Opcode(kind: MOV, mov: mov, source: reg(RAX), destination: destination)      
     else: discard
 
 proc emitValue(triplet: Triplet, module: var AsmModule, function: var TextItem)
 proc emitLoad(index: int, memory: TripletAtom, module: var AsmModule, function: var TextItem)
 
 proc emitBinary(triplet: Triplet, module: var AsmModule, function: var TextItem) =
+  var r: Operand = nil
   case triplet.op:
   of OpMod:
     emitAtom(triplet.left, module, function, reg(EAX))
     em Opcode(kind: MOV, mov: MOVL, source: Operand(kind: OpConstant, value: "0"), destination: reg(EDX))
     emitAtom(triplet.right, module, function, reg(EBX))
     em Opcode(kind: DIVL, value: reg(EBX))
-    module.active = reg(EDX)
+    r = reg(EDX)
   of OpEq:
-    emitAtom(triplet.left, module, function, reg(EAX))
-    emitAtom(triplet.right, module, function, reg(EBX))
-    em Opcode(kind: CMP, left: reg(EAX), right: reg(EBX))
+    var left = translate(triplet.left, module, function)
+    var right = reg(EBX)
+    if triplet.right.kind == UConstant:
+      emitAtom(triplet.right, module, function, right)
+    else:
+      right = translate(triplet.right, module, function)
+    em Opcode(kind: CMP, left: left, right: right)
+  else: discard
+  if r != nil:
+    emitAtom(r, module, function, triplet.destination)
   else: discard
 
 var AsmOperators*: array[Operator, OpcodeKind] = [
@@ -133,8 +208,7 @@ proc emitValue(triplet: Triplet, module: var AsmModule, function: var TextItem) 
   of TUnary:
     discard
   of TSave:
-    emitAtom(triplet.value, module, function, reg(EAX))
-    # save name
+    emitAtom(triplet.value, module, function, triplet.target)
   of TJump:
     em Opcode(kind: JMP, label: triplet.location)
   of TIf:
@@ -158,17 +232,18 @@ proc emitValue(triplet: Triplet, module: var AsmModule, function: var TextItem) 
     emitLoad(triplet.index, triplet.memory, module, function)
   of TCall:
     em Opcode(kind: CALL, label: triplet.function)
-    emitAtom(reg(RAX), module, function, triplet.f)
+    var size = loadSize(triplet.f.typ)
+    emitAtom(reg(SIZE_REGISTERS[size][0]), module, function, triplet.f)
   of TResult:
-    emitAtom(triplet.a, module, function, reg(RAX))
+    var size = loadSize(triplet.a.typ)
+    emitAtom(triplet.a, module, function, reg(SIZE_REGISTERS[size][0]))
     em Opcode(kind: JMP, label: "$1_return" % function.label)
-    em Opcode(kind: RET)
   of TLabel:
     em Opcode(kind: LABEL, label: triplet.l)
   of TInline:
     em Opcode(kind: INLINE, code: triplet.code)
 
-proc emitBefore(module: var AsmModule, node: var TextItem) =
+proc emitBefore(arg: TripletFunction, module: var AsmModule, node: var TextItem) =
   var function = node
   # PUSHQ %rbp          # save the base pointer
   # MOVQ  %rsp, %rbp    # set new base pointer
@@ -183,10 +258,11 @@ proc emitBefore(module: var AsmModule, node: var TextItem) =
   # PUSHQ %r15
   em Opcode(kind: PUSHQ,  value:  reg(RBP))
   em Opcode(kind: MOV,    mov: MOVQ, source: reg(RSP), destination: reg(RBP))
-  em Opcode(kind: PUSHQ,  value:  reg(RDI))
-  em Opcode(kind: PUSHQ,  value:  reg(RSI))
-  em Opcode(kind: PUSHQ,  value:  reg(RDX))
-  em Opcode(kind: SUBQ,   source: Operand(kind: OpConstant, value: "16"), destination: reg(RSP))
+  for j in 0..<arg.paramCount:
+    if j >= len(ARG_LOCATIONS):
+      raise newException(RoswellError, "too many args")
+    em Opcode(kind: PUSHQ,  value:  ARG_LOCATIONS[j])
+  em Opcode(kind: SUBQ,   source: Operand(kind: OpConstant, value: $(8 * arg.locals)), destination: reg(RSP))
   em Opcode(kind: PUSHQ,  value:  reg(RBX))
   em Opcode(kind: PUSHQ,  value:  reg(R12))
   em Opcode(kind: PUSHQ,  value:  reg(R13))
@@ -220,16 +296,23 @@ proc emitAfter(module: var AsmModule, node: var TextItem) =
 
 proc emitPredefined(node: Predefined, module: var AsmModule): TextItem =
   var res = TextItem(label: node.function, opcodes: @[])
-  emitBefore(module, res)
+  emitBefore(TripletFunction(paramCount: 2, locals: 2), module, res)
   res.opcodes.add(Opcode(kind: INLINE, code: node.code))
   emitAfter(module, res)
   result = res
 
 
+var Available: array[Register, bool] = [
+  false, false, false, false, false, false, false, false, true, true, true, true, false, false, false, false,
+  false, false, false, false, false, false, false, false, true, true, true, true, false, false, false, false,
+  false, false, false, false, false, false, false, false, true, true, true, true, false, false, false, false,
+  false, false, false, false, false, false, false, false, true, true, true, true, false, false, false, false
+]
+
 proc emitFunction(node: TripletFunction, module: var AsmModule): TextItem =
-  var res = TextItem(label: node.label, opcodes: @[])
+  var res = TextItem(label: node.label, opcodes: @[], available: Available, index: node.paramCount + 1)
   module.env = newEnv[Operand](module.env)
-  emitBefore(module, res)
+  emitBefore(node, module, res)
   for triplet in node.triplets:
     emitValue(triplet, module, res)
   emitAfter(module, res)
@@ -247,4 +330,5 @@ var LOAD_LOCATIONS = @[
 ]
 
 proc emitLoad(index: int, memory: TripletAtom, module: var AsmModule, function: var TextItem) =
-  discard
+  if memory.kind == ULabel:
+    module.env[memory.label] = Operand(kind: OpAddressRange, offset: -8 * (index + 1), arg: reg(RBP))

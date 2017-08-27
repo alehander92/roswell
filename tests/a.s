@@ -1,4 +1,4 @@
-.file    ""
+.file    "tests/a.s"
 .data
 nl:
     .string "\n"
@@ -16,7 +16,6 @@ display:
     MOVQ   %rsp,               %rbp
     PUSHQ  %rdi
     PUSHQ  %rsi
-    PUSHQ  %rdx
     SUBQ   $16,                %rsp
     PUSHQ  %rbx
     PUSHQ  %r12
@@ -54,9 +53,7 @@ name:
     PUSHQ  %rbp
     MOVQ   %rsp,               %rbp
     PUSHQ  %rdi
-    PUSHQ  %rsi
-    PUSHQ  %rdx
-    SUBQ   $16,                %rsp
+    SUBQ   $32,                %rsp
     PUSHQ  %rbx
     PUSHQ  %r12
     PUSHQ  %r13
@@ -64,34 +61,34 @@ name:
     PUSHQ  %r15
     #before
 
-    MOVL   $a,                 %eax
+    MOVL   -8(%rbp),           %eax
     MOVL   $0,                 %edx
     MOVL   $2,                 %ebx
     DIVL   %ebx
-    MOVL   $t0,                %eax
+    MOVL   %edx,               %r8d
     MOVL   $0,                 %ebx
-    CMP    %eax,               %ebx
+    CMP    %r8d,               %ebx
     JNE    l0
     MOVL   $19,                %edi
     CALL   malloc
     MOVL   $5,                 (%rax)
-    MOVL   $s2,                -4(%rax)
+    MOVL   $s2,                4(%rax)
+    MOVQ   %rax,               %rdi
     CALL   display
-    MOVL   %rax,               %eax
-    MOVL   $0,                 %rax
+    MOVL   %eax,               %r9d
+    MOVL   $0,                 %eax
     JMP    name_return
-    RET    
     JMP    l1
 l0:
     MOVL   $18,                %edi
     CALL   malloc
     MOVL   $4,                 (%rax)
-    MOVL   $s3,                -4(%rax)
+    MOVL   $s3,                4(%rax)
+    MOVQ   %rax,               %rdi
     CALL   display
-    MOVL   %rax,               %eax
-    MOVL   $1,                 %rax
+    MOVL   %eax,               %r9d
+    MOVL   $1,                 %eax
     JMP    name_return
-    RET    
 l1:
 name_return:
     #after
@@ -109,10 +106,7 @@ name_return:
 _start:
     PUSHQ  %rbp
     MOVQ   %rsp,               %rbp
-    PUSHQ  %rdi
-    PUSHQ  %rsi
-    PUSHQ  %rdx
-    SUBQ   $16,                %rsp
+    SUBQ   $8,                 %rsp
     PUSHQ  %rbx
     PUSHQ  %r12
     PUSHQ  %r13
@@ -122,11 +116,7 @@ _start:
 
     MOVQ   $2,                 %rdi
     CALL   name
-    MOVL   %rax,               %eax
-    MOVL   $t4,                %eax
-    MOVQ   $a,                 %rdi
-    CALL   display
-    MOVL   %rax,               %eax
+    MOVL   %eax,               %r8d
     MOVL   $1,                 %eax
     MOVL   $0,                 %ebx
     INT    $0x80

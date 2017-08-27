@@ -38,7 +38,7 @@ proc toBinary(operand: Operand): string =
   of OpAddress:
     "($1)" % toBinary(operand.address)
   of OpAddressRange:
-    "-$1($2)" % [$operand.offset, toBinary(operand.arg)]
+    "$1($2)" % [$operand.offset, toBinary(operand.arg)]
 
 proc toBinary(opcode: Opcode): string =
   if opcode.kind == COMMENT:

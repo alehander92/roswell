@@ -2,13 +2,18 @@ import env, errors
 import tables, strutils
 
 type
+  Register* = enum 
+    RAX, RCX, RDX, RBX, RSI, RDI, RSP, RBP, R8, R9, R10, R11, R12, R13, R14, R15,
+    EAX, ECX, EDX, EBX, ESI, EDI, ESP, EBP, R8D, R9D, R10D, R11D, R12D, R13D, R14D, R15D,
+    AX, CX, DX, BX, SI, DI, SP, BP, R8W, R9W, R10W, R11W, R12W, R13W, R14W, R15W,
+    AL, CL, DL, BL, SIL, DIL, SPL, BPL, R8B, R9B, R10B, R11B, R12B, R13B, R14B, R15B
+
   AsmModule* = ref object
     file*:      string
     data*:      seq[DataItem]
     functions*: seq[TextItem]
-    labels*:    int
     env*:       Env[Operand]
-    active*:    Operand
+    labels*:    int
 
   DataItemKind* = enum DataInt, DataString
 
@@ -21,14 +26,17 @@ type
       b*: string
 
   TextItem* = object
-    label*:   string
-    opcodes*: seq[Opcode]
+    label*:     string
+    opcodes*:   seq[Opcode]
+    available*: array[Register, bool]
+    index*:     int
 
-  Register* = enum AL, CL, DL, EAX, EBX, ESI, R10, R11, R12, R13, R14, R15, RBP, RSP, RBX, RDI, RSI, RDX, ECX, EDX, EDI, RAX, RCX
 
   OpcodeKind* = enum MOV, ADD, SUB, DIVL, INT, PUSHQ, POPQ, SUBQ, CALL, RET, COMMENT, INLINE, LABEL, JNE, JE, JG, JGE, JL, JLE, JMP, CMP, A
 
-  MovSuffix* = enum MOVQ, MOVB, MOVL, MOVW
+  MovSuffix* = enum MOVB, MOVW, MOVL, MOVQ
+
+  Size* = enum SIZEBYTE, SIZEWORD, SIZEDOUBLEWORD, SIZEQUADWORD
 
   Opcode* = object
     case kind*: OpcodeKind
@@ -69,6 +77,12 @@ type
     parent*:     AsmEnv
     top*:        AsmEnv
 
+let SIZE_REGISTERS*: array[Size, seq[Register]] = [
+  @[AL, CL, DL, BL, SIL, DIL, SPL, BPL, R8B, R9B, R10B, R11B, R12B, R13B, R14B, R15B], # SIZEBYTE
+  @[AX, CX, DX, BX, SI, DI, SP, BP, R8W, R9W, R10W, R11W, R12W, R13W, R14W, R15W], # SIZEWORD
+  @[EAX, ECX, EDX, EBX, ESI, EDI, ESP, EBP, R8D, R9D, R10D, R11D, R12D, R13D, R14D, R15D], # SIZEDOUBLEWORD
+  @[RAX, RCX, RDX, RBX, RSI, RDI, RSP, RBP, R8, R9, R10, R11, R12, R13, R14, R15] # SIZEQUADWORD  
+]
 
 proc reg*(register: Register): Operand =
   result = Operand(kind: OpRegister, register: register)

@@ -1,5 +1,5 @@
 import ast, type_env, types, top, errors
-import tables, strutils, sequtils
+import tables, strutils, sequtils, terminal
 
 proc typecheckNode(node: Node, env: var TypeEnv): Node
 
@@ -12,7 +12,7 @@ proc typecheck*(ast: Node, env: var TypeEnv): Node =
       raise newException(RoswellError, "undefined program")
     env.define(node.label, node.types)
   var value = typecheckNode(ast, env)
-  echo value
+  styledWriteLine(stdout, fgBlue, "TYPECHECK\n", $value, resetStyle)
   return value
 
 proc typecheckNode(node: Node, env: var TypeEnv): Node =

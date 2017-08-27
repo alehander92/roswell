@@ -1,5 +1,5 @@
-import triplet, ast, core, types, env, errors
-import strutils, sequtils
+import triplet, ast, core, types, top, env, errors
+import strutils, sequtils, terminal
 
 type
   A* = ref object of RootObj
@@ -17,15 +17,18 @@ proc convert*(ast: Node): TripletModule =
   for function in ast.functions:
     module.functions.add(convertFunction(function, module))
   module.predefined = ast.predefined
-  echo module
+  styledWriteLine(stdout, fgMagenta, "CONVERT\n", $module, resetStyle)
   result = module
 
 template append(triplet: untyped): untyped =
   function.triplets.add(`triplet`)
 
-proc newTemp*(module: var TripletModule): TripletAtom =
-  result = uLabel("t$1" % $module.temps)
-  inc module.temps
+proc newTemp*(module: var TripletModule, typ: Type): TripletAtom =
+  if typ == voidType:
+    result = uLabel("_", typ)
+  else:
+    result = uLabel("t$1" % $module.temps, typ)
+    inc module.temps
 
 proc activeLabel(module: var TripletModule): string =
   result = "l$1" % $(module.labels - 1)
@@ -47,17 +50,21 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
         if arg == nil:
           raise newException(RoswellError, "arg empty")
         append Triplet(kind: TArg, source: arg, i: j)
-      var f = module.newTemp()
+      var f = module.newTemp(node.tag)
+      if f.kind != ULabel:
+        return
       append Triplet(kind: TCall, f: f, function: node.function.s, count: len(args))
+      inc function.locals
       result = f
     elif node.function.kind == AOperator:
       var left = convertNode(node.args[0], module, function)
       var right = convertNode(node.args[1], module, function)
-      var destination = module.newTemp()
+      var destination = module.newTemp(node.tag)
       var triplet = Triplet(kind: TBinary, destination: destination, op: node.function.op, left: left, right: right)
       triplet.left.triplet = triplet
       triplet.right.triplet = triplet
       append triplet
+      inc function.locals
       result = destination
     else:
       raise newException(RoswellError, "corrupt node")
@@ -90,11 +97,13 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     result = nil
   of AAssignment:
     var res = convertNode(node.res, module, function)
-    append Triplet(kind: TSave, value: res, target: uLabel(node.target))
+    append Triplet(kind: TSave, value: res, target: uLabel(node.target, node.res.tag))
+    inc function.locals
+    result = nil
   of AInt, AFloat, ABool, AString:
-    result = TripletAtom(kind: UConstant, node: node)
+    result = TripletAtom(kind: UConstant, typ: node.tag, node: node)
   of ALabel:
-    result = uLabel(node.s)
+    result = uLabel(node.s, node.tag)
   else:
     result = nil
 
@@ -106,7 +115,7 @@ proc convertFunction*(node: Node, module: var TripletModule): TripletFunction =
   if node.types.kind != Complex:
     raise newException(RoswellError, "undefined type")
   var b = B(a: 2)
-  var res = TripletFunction(label: node.label, triplets: @[])
+  var res = TripletFunction(label: node.label, triplets: @[], paramCount: len(node.params), locals: 0)
   convertParams(node.params, node.types.args, module, res)
   discard convertNode(node.code, module, res)
   if node.label == "main":
@@ -115,4 +124,4 @@ proc convertFunction*(node: Node, module: var TripletModule): TripletFunction =
 
 proc convertParams(params: seq[string], types: seq[Type], module: var TripletModule, function: var TripletFunction) =
   for j in low(params)..high(params):
-    append Triplet(kind: TParam, index: j, memory: uLabel("p$1" % $j))
+    append Triplet(kind: TParam, index: j, memory: uLabel(params[j], types[j]))

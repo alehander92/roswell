@@ -69,3 +69,13 @@ proc `==`*(typ: Type, b: Type): bool =
     of Overload:
       return allZip(typ.overloads, b.overloads)
 
+proc simpleType*(typ: Type): string =
+  case typ.kind:
+  of Simple:
+    result = typ.label
+  of Complex:
+    result = "$1[$2]" % [typ.label, typ.args.mapIt(simpleType(it)).join(" ")]
+  of Generic:
+    result = "$1[$2][$3]" % [typ.label, typ.genericArgs.join(" "), typ.complex.args.mapIt(simpleType(it)).join(" ")]
+  else:
+    result = ""

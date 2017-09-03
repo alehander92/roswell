@@ -12,9 +12,9 @@ var mathIntInt* =                   functionType(@[intType, intType, intType])
 var logicBoolBool* =                functionType(@[boolType, boolType, boolType])
 var compareIntIntBool* =            functionType(@[intType, intType, boolType])
 
-TOP_ENV.define("display",           functionType(@[stringType, voidType]), predefined=core.displayDefinition)
-TOP_ENV.define("display",           functionType(@[intType, voidType]), predefined=core.displayIntDefinition)
-TOP_ENV.define("exit",              functionType(@[intType, voidType]), predefined=core.exitDefinition)
+TOP_ENV.define("display",           functionType(@[stringType, voidType]), predefined=core.PDisplayDefinition)
+TOP_ENV.define("display",           functionType(@[intType, voidType]), predefined=core.PDisplayIntDefinition)
+TOP_ENV.define("exit",              functionType(@[intType, voidType]), predefined=core.PExitDefinition)
 
 TOP_ENV.define("+",                 mathIntInt)
 TOP_ENV.define("-",                 mathIntInt)

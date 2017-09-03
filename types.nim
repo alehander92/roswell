@@ -70,6 +70,8 @@ proc `==`*(typ: Type, b: Type): bool =
       return allZip(typ.overloads, b.overloads)
 
 proc simpleType*(typ: Type): string =
+  if typ == nil:
+    return "nil"
   case typ.kind:
   of Simple:
     result = typ.label

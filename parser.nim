@@ -111,7 +111,7 @@ proc parseSignature(buffer: string, depth: int = 0): (bool, string, Node) =
   if len(buffer) < 3:
     return (false, buffer, nil)
   elif buffer[0..2] == "def":
-    f.types = Type(kind: Complex, label: Function, args: @[Type(kind: Simple, label: "void")])
+    f.types = Type(kind: Complex, label: Function, args: @[Type(kind: Simple, label: "Void")])
     return (true, buffer, f)
   else:
     f.types = Type(kind: Complex, label: Function, args: @[])
@@ -334,7 +334,22 @@ proc parseCall(buffer: string, depth: int = 0): (bool, string, Node) =
     return (true, left, f)
   return (false, buffer, nil)
 
-const HELPER_FUNCTIONS = @[parseMember, parseCall]
+proc parseIndex(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("Index")
+  var f = Node(kind: AIndex)
+  decl
+
+  if len(buffer) == 0 or buffer[0] != '[':
+    return (false, buffer, nil)
+
+  (success, left, node) = parseExpression(buffer[1..^1], depth + 1)
+  if success:
+    if len(left) > 0 and left[0] == ']':
+      f.index = node
+      return (true, left[1..^1], f)
+  return (false, buffer, nil)
+
+const HELPER_FUNCTIONS = @[parseMember, parseCall, parseIndex]
 
 proc parseHelper(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Helper")
@@ -401,6 +416,24 @@ proc parseBool(buffer: string, depth: int = 0): (bool, string, Node) =
     return (true, left, Node(kind: ABool, b: false))
   return (false, buffer, nil)
 
+proc parseArray(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("Array")
+  var f = Node(kind: AArray, elements: @[])
+  decl
+  if len(buffer) < 2 or buffer[0] != '_' or buffer[1] != '[':
+    return (false, buffer, nil)
+  left = buffer[2..^1]
+  while true:
+    (success, left, node) = parseExpression(left, depth + 1)
+    if success:
+      f.elements.add(node)
+      left = skip(left)
+    else:
+      if len(left) > 0 and left[0] == ']':
+        return (true, left[1..^1], f)
+      else:
+        return (false, buffer, nil)
+
 proc parseString(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("String")
   if len(buffer) == 0 or buffer[0] != '\'':
@@ -412,7 +445,7 @@ proc parseString(buffer: string, depth: int = 0): (bool, string, Node) =
   return (false, buffer, nil)
 
 
-var BASIC_FUNCTIONS = @[parseLabel, parseNumber, parseBool, parseString, parseOperator] #, parseLabel, parseOperator, parseString]
+var BASIC_FUNCTIONS = @[parseLabel, parseNumber, parseBool, parseString, parseArray, parseOperator] #, parseLabel, parseOperator, parseString]
 
 proc parseBasic(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Basic")
@@ -464,9 +497,18 @@ proc parseType(buffer: string, depth: int = 0): (bool, string, Node) =
     return (false, buffer, nil)
   if left[0] == '[':
     (success, left, node) = parseType(left[1..^1], depth + 1)
+    if success and node.kind == AType and len(left) > 0 and left[0] == ']':
+      f.typ = Type(kind: Complex, label: "List", args: @[node.typ])
+      return (true, left[1..^1], f)
+  elif len(left) > 1 and left[0] == '_' and left[1] == '[':
+    (success, left, node) = parseType(left[2..^1], depth + 1)
     if success and node.kind == AType:
-      f.typ = Type(kind: Complex, args: @[node.typ])
-      if len(left) > 0 and left[0] == ']':
+      raw(",")
+      left = skip(left)
+      var intNode: Node
+      (success, left, intNode) = parseNumber(left, depth + 1)
+      if success and intNode.kind == AInt and len(left) > 0 and left[0] == ']':
+        f.typ = Type(kind: Complex, label: "Array", args: @[node.typ, Type(kind: Simple, label: $intNode.value)])
         return (true, left[1..^1], f)
   else:
     (success, left, node) = parseLabel(left, depth + 1)
@@ -543,6 +585,11 @@ proc fillNode(node: Node, into: Node): Node =
       into.receiver = node
     else:
       into.receiver = fillNode(node, into.receiver)
+  of AIndex:
+    if into.indexable == nil:
+      into.indexable = node
+    else:
+      into.indexable = fillNode(node, into.receiver)
   else: discard
   return into
 

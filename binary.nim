@@ -38,7 +38,23 @@ proc toBinary(operand: Operand): string =
   of OpAddress:
     "($1)" % toBinary(operand.address)
   of OpAddressRange:
-    "$1($2)" % [$operand.offset, toBinary(operand.arg)]
+    if operand.index == nil:
+      "$1($2)" % [$operand.offset, toBinary(operand.arg)]
+    else:
+      var index = toBinary(operand.index)
+      if index[0] == '$':
+        index = index[1..^1]
+      var arg = ""
+      var offset = ""
+      if operand.arg.kind == OpAddressRange and operand.arg.index == nil:
+        arg = toBinary(operand.arg.arg)
+        offset = $operand.arg.offset
+      else:
+        arg = toBinary(operand.arg)
+        offset = $operand.offset
+      if offset == "0":
+        offset = ""
+      "$1($2, $3, $4)" % [offset, arg, index, $OFFSETS[operand.indexSize]]
 
 proc toBinary(opcode: Opcode): string =
   if opcode.kind == COMMENT:

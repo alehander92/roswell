@@ -1,26 +1,25 @@
-import ast, env, type_env, types, errors, helpers
+import ast, env, core, type_env, types, errors, helpers
 import tables, strutils, sequtils
 
 type
-  TripletKind* = enum TBinary, TUnary, TSave, TJump, TIf, TArg, TCall, TParam, TResult, TLabel, TInline
+  TripletKind* = enum TBinary, TUnary, TSave, TJump, TIf, TArg, TCall, TParam, TResult, TLabel, TInline, TIndex, TArray, TIndexSave
 
   Triplet* = ref object
+    destination*: TripletAtom
     case kind*: TripletKind
     of TBinary:
-      destination*: TripletAtom
       op*:          Operator
       left*:        TripletAtom
       right*:       TripletAtom
     of TUnary:
-      z*:           TripletAtom
       unaryOp*:     Operator
       u*:           TripletAtom
     of TSave:
       value*:       TripletAtom
-      target*:      TripletAtom
     of TJump:
       location*:    string
     of TIf:
+      conditionLabel*: TripletAtom
       condition*:   Operator
       label*:       string
     of TArg:
@@ -33,12 +32,20 @@ type
       f*:           TripletAtom
       function*:    string
       count*:       int
-    of TResult:
-      a*:           TripletAtom
+    of TResult: discard
     of TLabel:
       l*:           string
     of TInline:
-      code*:        string
+      code*:        PredefinedLabel
+    of TIndex:
+      indexable*:   TripletAtom
+      iindex*:      TripletAtom
+    of TArray:
+      arrayCount*:  int
+    of TIndexSave:
+      sIndexable*:  TripletAtom
+      sIndex*:      TripletAtom
+      sValue*:      TripletAtom
 
   TripletAtomKind* = enum ULabel, UConstant
 
@@ -54,8 +61,9 @@ type
   TripletFunction* = object
     label*:       string
     triplets*:    seq[Triplet]
-    paramCount*:  int 
+    paramCount*:  int
     locals*:      int
+    typ*:         Type
 
   TripletModule* = object
     file*:    string
@@ -103,13 +111,13 @@ proc render*(triplet: Triplet, depth: int): string =
     fourth = $triplet.right
     equal = true
   of TUnary:
-    first = $triplet.z
+    first = $triplet.destination
     second = $triplet.unaryOp
     third = $triplet.u
     equal = true
   of TSave:
 
-    first = $triplet.target
+    first = $triplet.destination
     second = $triplet.value
     equal = true
   of TJump:
@@ -139,14 +147,31 @@ proc render*(triplet: Triplet, depth: int): string =
     equal = false
   of TResult:
     first = "RESULT"
-    second = $triplet.a
+    second = $triplet.destination
     equal = false
   of TLabel:
     return repeat("  ", depth - 1) & triplet.l & ":"
   of TInline:
     first = "INLINE"
-    second = triplet.code[0..<10]
+    second = $triplet.code
     equal = false
+  of TIndex:
+    first = $triplet.destination
+    second = "INDEX"
+    third = $triplet.indexable
+    fourth = $triplet.iindex
+    equal = true
+  of TArray:
+    first = $triplet.destination
+    second = "ARRAY"
+    third = $triplet.arrayCount
+    equal = true
+  of TIndexSave:
+    first = $triplet.destination
+    second = $triplet.sIndexable
+    third = $triplet.sIndex
+    fourth = $triplet.sValue
+    equal = true
   result.add(leftAlign(first, 18, ' '))
   if equal:
     result.add("= ")
@@ -177,3 +202,6 @@ proc `$`*(t: TripletAtom): string =
 
 proc uLabel*(label: string, typ: Type, triplet: Triplet = nil): TripletAtom =
   result = TripletAtom(kind: ULabel, label: label, typ: typ, triplet: triplet)
+
+proc ss(s: int): int =
+  result = 2

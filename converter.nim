@@ -70,12 +70,12 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
       raise newException(RoswellError, "corrupt node")
   of AReturn:
     var a = convertNode(node.ret, module, function)
-    append Triplet(kind: TResult, a: a)
+    append Triplet(kind: TResult, destination: a)
     result = nil
   of AIf:
     var test = convertNode(node.condition, module, function)
     var label = module.newLabel()
-    append Triplet(kind: TIf, condition: OpNotEq, label: label)
+    append Triplet(kind: TIf, conditionLabel: test, condition: OpNotEq, label: label)
     discard convertNode(node.success, module, function)
 
 
@@ -97,16 +97,41 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     result = nil
   of AAssignment:
     var res = convertNode(node.res, module, function)
-    append Triplet(kind: TSave, value: res, target: uLabel(node.target, node.res.tag))
+    append Triplet(kind: TSave, value: res, destination: uLabel(node.target, node.res.tag))
     inc function.locals
     result = nil
   of AInt, AFloat, ABool, AString:
     result = TripletAtom(kind: UConstant, typ: node.tag, node: node)
   of ALabel:
     result = uLabel(node.s, node.tag)
+  of AIndex:
+    # the address by offset
+    var indexable = convertNode(node.indexable, module, function)
+    var index = convertNode(node.index, module, function)
+    var destination = module.newTemp(node.tag)
+    append Triplet(kind: TIndex, indexable: indexable, iindex: index, destination: destination)
+    result = destination
+  of AArray:
+    var destination = module.newTemp(node.tag)
+    if destination.kind != ULabel:
+      return
+    append Triplet(kind: TArray, arrayCount: len(node.elements), destination: destination)
+    for j, element in node.elements:
+      discard convertNode(Node(kind: AIndexAssignment, aIndex: Node(kind: AIndex, indexable: Node(kind: ALabel, s: destination.label, tag: node.tag), index: Node(kind: AInt, value: j, tag: intType), tag: node.elements[0].tag), aValue: element, tag: voidType), module, function)
+    result = destination
+  of AIndexAssignment:
+    # AIndexAssignment(aIndex: AIndex(@indexable, @index), @aValue) -> Triplet(TIndexSave, $newTemp, !@indexable, !@index, !@aValue)
+    if node.aIndex.kind != AIndex:
+      raise newException(RoswellError, "invalid node")
+    var sIndexable = convertNode(node.aIndex.indexable, module, function)
+    var sIndex = convertNode(node.aIndex.index, module, function)
+    var sValue = convertNode(node.aValue, module, function)
+    var destination = module.newTemp(node.aValue.tag)
+    append Triplet(kind: TIndexSave, destination: destination, sIndexable: sIndexable, sIndex: sIndex, sValue: sValue)
+    result = destination
   else:
     result = nil
-
+  
 proc convertParams(params: seq[string], types: seq[Type], module: var TripletModule, function: var TripletFunction)
 
 proc convertFunction*(node: Node, module: var TripletModule): TripletFunction =
@@ -115,11 +140,11 @@ proc convertFunction*(node: Node, module: var TripletModule): TripletFunction =
   if node.types.kind != Complex:
     raise newException(RoswellError, "undefined type")
   var b = B(a: 2)
-  var res = TripletFunction(label: node.label, triplets: @[], paramCount: len(node.params), locals: 0)
+  var res = TripletFunction(label: node.label, triplets: @[], paramCount: len(node.params), locals: 0, typ: node.types)
   convertParams(node.params, node.types.args, module, res)
   discard convertNode(node.code, module, res)
   if node.label == "main":
-    res.triplets.add(Triplet(kind: TInline, code: core.exitDefinition))
+    res.triplets.add(Triplet(kind: TInline, code: core.PExitDefinition))
   result = res
 
 proc convertParams(params: seq[string], types: seq[Type], module: var TripletModule, function: var TripletFunction) =

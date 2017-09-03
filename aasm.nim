@@ -32,7 +32,7 @@ type
     index*:     int
 
 
-  OpcodeKind* = enum MOV, ADD, SUB, DIVL, INT, PUSHQ, POPQ, SUBQ, CALL, RET, COMMENT, INLINE, LABEL, JNE, JE, JG, JGE, JL, JLE, JMP, CMP, A
+  OpcodeKind* = enum MOV, ADD, SUB, DIVL, MUL, IMUL, INT, PUSHQ, POPQ, SUBQ, CALL, RET, COMMENT, INLINE, LABEL, JNE, JE, JG, JGE, JL, JLE, JMP, CMP, A
 
   MovSuffix* = enum MOVB, MOVW, MOVL, MOVQ
 
@@ -44,12 +44,12 @@ type
       source*:      Operand
       destination*: Operand
       mov*:         MovSuffix
-    of ADD, SUB, CMP:
+    of ADD, SUB, IMUL, CMP:
       left*:        Operand
       right*:       Operand
     of INT:
       arg*:         int
-    of PUSHQ, POPQ, DIVL:
+    of PUSHQ, POPQ, DIVL, MUL:
       value*:       Operand
     of CALL, COMMENT, JNE, JE, JG, JGE, JL, JLE, JMP, LABEL, A:
       label*:       string
@@ -69,8 +69,11 @@ type
     of OpAddress:
       address*: Operand
     of OpAddressRange:
-      arg*: Operand
-      offset*: int
+      arg*:       Operand
+      offset*:    int
+      index*:     Operand
+      indexSize*: Size
+
 
   AsmEnv* = ref object
     locations*:  Table[string, Operand]
@@ -83,6 +86,8 @@ let SIZE_REGISTERS*: array[Size, seq[Register]] = [
   @[EAX, ECX, EDX, EBX, ESI, EDI, ESP, EBP, R8D, R9D, R10D, R11D, R12D, R13D, R14D, R15D], # SIZEDOUBLEWORD
   @[RAX, RCX, RDX, RBX, RSI, RDI, RSP, RBP, R8, R9, R10, R11, R12, R13, R14, R15] # SIZEQUADWORD  
 ]
+
+let OFFSETS*: array[Size, int] = [1, 2, 4, 8]
 
 proc reg*(register: Register): Operand =
   result = Operand(kind: OpRegister, register: register)

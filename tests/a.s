@@ -35,7 +35,7 @@ display:
     MOVL    $1,             %ebx
     MOVL    $4,             %eax
     INT     $0x80
-    
+      
 display_return:
     #after
 
@@ -120,7 +120,7 @@ _start:
     MOVL   $1,                 %eax
     MOVL   $0,                 %ebx
     INT    $0x80
-    
+      
 main_return:
     #after
 
@@ -134,5 +134,5 @@ main_return:
     MOVL   $1,                 %eax
     MOVL   $0,                 %ebx
     INT    $0x80
-    
+      
 

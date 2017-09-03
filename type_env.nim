@@ -1,5 +1,5 @@
 import tables, errors
-import types, strutils, sequtils
+import core, types, strutils, sequtils
 
 type
   TypeEnv* = ref object
@@ -7,11 +7,6 @@ type
     parent*:     TypeEnv
     top*:        TypeEnv
     predefined*: seq[Predefined]
-
-  Predefined* = object
-    function*:  string
-    code*:      string
-    called*:    bool
 
 proc getOrDefault*(t: TypeEnv, title: string): Type
 
@@ -25,15 +20,15 @@ proc `[]`*(t: TypeEnv, title: string): Type =
 proc `[]=`*(t: var TypeEnv, title: string, typ: Type) =
   t.types[title] = typ
 
-proc define*(t: var TypeEnv, title: string, typ: Type, predefined: string = "") =
+proc define*(t: var TypeEnv, title: string, typ: Type, predefined: PredefinedLabel = PNil) =
   if t.types.hasKey(title):
     if t.types[title].kind != Overload:
       t.types[title] = Type(kind: Overload, overloads: @[])
   else:
     t.types[title] = Type(kind: Overload, overloads: @[])
   t.types[title].overloads.add(typ)
-  if len(predefined) > 0:
-    t.top.predefined.add(Predefined(function: title, code: predefined, called: false))
+  if predefined != PNil:
+    t.top.predefined.add(Predefined(function: title, f: predefined, called: false))
 
 proc match*(t: var TypeEnv, title: string, args: seq[Type]): Type =
   result = matchOrDefault(t, title, args)

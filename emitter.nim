@@ -184,6 +184,10 @@ proc emitBinary(triplet: Triplet, module: var AsmModule, function: var TextItem)
     emitAtom(r, module, function, triplet.destination)
   else: discard
 
+proc z(indexable: TripletAtom, index: TripletAtom, size: Size, module: var AsmModule, function: var TextItem): Operand =
+  emitAtom(index, module, function, reg(EAX))
+  result = Operand(kind: OpAddressRange, offset: 0, arg: translate(indexable, module, function), index: reg(EAX), indexSize: size)
+
 var AsmOperators*: array[Operator, OpcodeKind] = [
   MOV,
   MOV,
@@ -208,7 +212,7 @@ proc emitValue(triplet: Triplet, module: var AsmModule, function: var TextItem) 
   of TUnary:
     discard
   of TSave:
-    emitAtom(triplet.value, module, function, triplet.target)
+    emitAtom(triplet.value, module, function, triplet.destination)
   of TJump:
     em Opcode(kind: JMP, label: triplet.location)
   of TIf:
@@ -235,13 +239,33 @@ proc emitValue(triplet: Triplet, module: var AsmModule, function: var TextItem) 
     var size = loadSize(triplet.f.typ)
     emitAtom(reg(SIZE_REGISTERS[size][0]), module, function, triplet.f)
   of TResult:
-    var size = loadSize(triplet.a.typ)
-    emitAtom(triplet.a, module, function, reg(SIZE_REGISTERS[size][0]))
+    var size = loadSize(triplet.destination.typ)
+    emitAtom(triplet.destination, module, function, reg(SIZE_REGISTERS[size][0]))
     em Opcode(kind: JMP, label: "$1_return" % function.label)
   of TLabel:
     em Opcode(kind: LABEL, label: triplet.l)
   of TInline:
-    em Opcode(kind: INLINE, code: triplet.code)
+    em Opcode(kind: INLINE, code: core.asmDefinitions[triplet.code])
+  of TIndex:
+    emitAtom(
+      z(triplet.indexable, triplet.iindex, loadSize(triplet.destination.typ), module, function),
+      module,
+      function,
+      triplet.destination)
+  of TArray:
+    assert triplet.destination.typ.kind == Complex
+    var size = loadSize(triplet.destination.typ.args[0])
+    em Opcode(kind: MOV, mov: MOVL, source: Operand(kind: OpConstant, value: $(triplet.arrayCount * OFFSETS[size])), destination: reg(EDI))
+    em Opcode(kind: CALL, label: "malloc")
+    emitAtom(reg(RAX), module, function, triplet.destination)
+  of TIndexSave:
+    var index = z(triplet.sIndexable, triplet.sIndex, loadSize(triplet.destination.typ), module, function)
+    emitAtom(
+      triplet.sValue,
+      module,
+      function,
+      index)
+    emitAtom(index, module, function, triplet.destination)
 
 proc emitBefore(arg: TripletFunction, module: var AsmModule, node: var TextItem) =
   var function = node
@@ -297,7 +321,7 @@ proc emitAfter(module: var AsmModule, node: var TextItem) =
 proc emitPredefined(node: Predefined, module: var AsmModule): TextItem =
   var res = TextItem(label: node.function, opcodes: @[])
   emitBefore(TripletFunction(paramCount: 2, locals: 2), module, res)
-  res.opcodes.add(Opcode(kind: INLINE, code: node.code))
+  res.opcodes.add(Opcode(kind: INLINE, code: core.asmDefinitions[node.f]))
   emitAfter(module, res)
   result = res
 
@@ -319,7 +343,7 @@ proc emitFunction(node: TripletFunction, module: var AsmModule): TextItem =
   module.env = module.env.parent
   if node.label == "main":
     discard res.opcodes.pop()
-    res.opcodes.add(Opcode(kind: INLINE, code: core.exitDefinition))
+    res.opcodes.add(Opcode(kind: INLINE, code: core.asmDefinitions[core.PExitDefinition]))
   result = res
 
 var LOAD_LOCATIONS = @[

@@ -1,12 +1,12 @@
-import types, strutils, sequtils
-import type_env
+import core, types, type_env
+import strutils, sequtils
 
 type
   DebugFlag* = distinct bool
 
   Operator* = enum OpAnd, OpOr, OpEq, OpMod, OpAdd, OpSub, OpMul, OpDiv, OpNotEq, OpGt, OpGte, OpLt, OpLte, OpXor
 
-  NodeKind* = enum AProgram, AGroup, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AOperator, AType, AReturn, AIf, AAssignment, ADefinition, AMember
+  NodeKind* = enum AProgram, AGroup, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment
 
   Node* = ref object of RootObj
     case kind*: NodeKind:
@@ -32,6 +32,8 @@ type
       code*:          Node
     of ALabel, AString, APragma:
       s*:             string
+    of AArray:
+      elements*:      seq[Node]
     of AOperator:
       op*:            Operator
     of AType:
@@ -51,6 +53,12 @@ type
     of AMember:
       receiver*:      Node
       member*:        string
+    of AIndex:
+      indexable*:     Node
+      index*:         Node
+    of AIndexAssignment:
+      aIndex*:        Node
+      aValue*:        Node
     tag*:             Type
 
   NodeModule = enum MLib, MNative, MNim
@@ -110,12 +118,14 @@ proc render*(node: Node, depth: int): string =
       "AString('$1')" % node.s
     of APragma:
       "APragma($1)" % node.s
+    of AArray:
+      "AArray($1)" % node.elements.mapIt(render(it, depth + 1).strip(leading=true)).join(" ")
     of AOperator:
       "AOperator($1)" % $node.op
     of AType:
       "AType($1)" % $node.typ
     of AReturn:
-      "AReturn($1)" % render(node.ret, 0)
+      "AReturn($1)" % render(node.ret, depth + 1).strip(leading=true)
     of AIf:
       "AIf($1):\n$2success:\n$3\n$2fail:\n$4" % [
         render(node.condition, 0),
@@ -129,8 +139,10 @@ proc render*(node: Node, depth: int): string =
       "ADefinition($1):\n$2" % [node.id, render(node.definition, depth + 1)]
     of AMember:
       "AMember($1 $2)" % [render(node.receiver, 0), node.member]
-
-
+    of AIndex:
+      "AIndex($1 $2)" % [render(node.indexable, depth + 1).strip(leading=true), render(node.index, 0)]
+    of AIndexAssignment:
+      "AIndexAssignment($1):\n$2" % [render(node.aIndex, depth + 1).strip(leading=true), render(node.aValue, depth + 1)]
     else: ""
 
   result = repeat("  ", depth) & value

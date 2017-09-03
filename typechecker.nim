@@ -66,6 +66,20 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
     return Node(kind: AString, s: node.s, tag: stringType)
   of APragma:
     return Node(kind: APragma, s: node.s, tag: voidType)
+  of AArray:
+    if len(node.elements) < 1:
+      raise newException(RoswellError, "empty array")
+    var elementTag: Type
+    var newElements: seq[Node] = @[]
+    for element in node.elements:
+      var newElement = typecheckNode(element, env)
+      if elementTag == nil:
+        elementTag = newElement.tag
+      else:
+        if newElement.tag != elementTag:
+          raise newException(RoswellError, "array expected $1 not $2" % [$elementTag, $newElement.tag])
+      newElements.add(newElement)      
+    return Node(kind: AArray, elements: newElements, tag: Type(kind: Complex, label: "Array", args: @[elementTag, Type(kind: Simple, label: $len(newElements))]))  
   of AOperator:
     return Node(kind: AOperator, op: node.op, tag: voidType)
   of AType:
@@ -79,6 +93,7 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
       raise newException(RoswellError, "return type expected: $1, not $2" % [$t.args[^1], $newRet.tag])
     return Node(kind: AReturn, ret: newRet, tag: voidType)
   of AIf:
+    # AIf(!condition: #boolType, !success, !fail) -> #voidType
     var newCondition = typecheckNode(node.condition, env)
 
     if newCondition.tag != boolType:
@@ -99,7 +114,7 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
       raise newException(RoswellError, "undefined variable: $1" % node.target)
     if env[node.target] != newRes.tag:
       raise newException(RoswellError, "$1: expected $2, not $3" % [node.target, $env[node.target], $newRes.tag])
-    return Node(kind: AAssignment, target: node.target, res: newRes, tag: voidType)      
+    return Node(kind: AAssignment, target: node.target, res: newRes, tag: voidType)
   of ADefinition:
     var newDefinition: Node
     var tag: Type
@@ -121,4 +136,26 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
   of AMember:
     var newReceiver = typecheckNode(node.receiver, env)
     raise newException(RoswellError, "feature is missing")
+  of AIndex:
+    var newIndexable = typecheckNode(node.indexable, env)
+    var newIndex = typecheckNode(node.index, env)
+    if newIndexable.tag.kind != Complex or newIndexable.tag.label != "Array":
+      raise newException(RoswellError, "invalid indexable")
+    if newIndex.tag != intType:
+      raise newException(RoswellError, "invalid index")
+    if newIndex.kind == AInt:
+      if newIndex.value < 0:
+        raise newException(RoswellError, "negative index")
+      if newIndex.value >= parseInt(newIndexable.tag.args[1].label):
+        raise newException(RoswellError, "large index")
+    var tag = newIndexable.tag.args[0]
+    return Node(kind: AIndex, indexable: newIndexable, index: newIndex, tag: tag)
+  of AIndexAssignment:
+    var newAIndex = typecheckNode(node.aIndex, env)
+    var newAValue = typecheckNode(node.aValue, env)
+    if newAValue.tag != newAIndex.tag:
+      raise newException(RoswellError, "invalid operation")
+    return Node(kind: AIndexAssignment, aIndex: newAIndex, aValue: newAValue, tag: voidType)
   return node
+
+

@@ -17,7 +17,6 @@ proc convert*(ast: Node): TripletModule =
   for function in ast.functions:
     module.functions.add(convertFunction(function, module))
   module.predefined = ast.predefined
-  styledWriteLine(stdout, fgMagenta, "CONVERT\n", $module, resetStyle)
   result = module
 
 template append(triplet: untyped): untyped =

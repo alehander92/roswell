@@ -92,3 +92,26 @@ let OFFSETS*: array[Size, int] = [1, 2, 4, 8]
 proc reg*(register: Register): Operand =
   result = Operand(kind: OpRegister, register: register)
 
+proc `==`*(left: Operand, right: Operand): bool =
+  if cast[pointer](left) == nil:
+    return cast[pointer](right) == nil
+  if cast[pointer](right) == nil:
+    return cast[pointer](left) == nil
+  if left.kind != right.kind:
+    return false
+  else:
+    case left.kind:
+    of OpConstant:
+      return left.value == right.value
+    of OpRegister:
+      return left.register == right.register
+    of OpAddress:
+      return left.address == right.address
+    of OpAddressRange:
+      if left.index == nil or right.index == nil:
+        if left.index != nil or right.index != nil:
+          return false
+        return left.arg == right.arg and left.offset == right.offset
+      else:
+        return left.arg == right.arg and left.offset == right.offset and
+               left.index == right.index and left.indexSize == right.indexSize

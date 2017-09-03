@@ -1,6 +1,10 @@
-.file    ""
+.file    "tests/b.s"
 .data
-s0:
+nl:
+    .string "\n"
+i:
+    .long 10
+s2:
     .string "play\n"
 .text
 
@@ -10,7 +14,6 @@ display:
     MOVQ   %rsp,               %rbp
     PUSHQ  %rdi
     PUSHQ  %rsi
-    PUSHQ  %rdx
     SUBQ   $16,                %rsp
     PUSHQ  %rbx
     PUSHQ  %r12
@@ -19,12 +22,19 @@ display:
     PUSHQ  %r15
     #before
 
-    MOVL   -16(%rbp),          %edx
-    MOVL   -8(%rbp),           %ecx
-    MOVL   $1,                 %ebx
-    MOVL   $4,                 %eax
-    INT    $0x80
-    
+    MOVQ    -8(%rbp),       %rsp        # int* rsp = *((**int)rbp - 8)
+    MOVL    (%rsp),         %edx
+    MOVL    4(%rsp),        %ecx
+    MOVL    $1,             %ebx
+    MOVL    $4,             %eax
+    INT     $0x80
+    MOVL    $2,             %edx
+    MOVL    $nl,            %ecx
+    MOVL    $1,             %ebx
+    MOVL    $4,             %eax
+    INT     $0x80
+      
+display_return:
     #after
 
     POPQ   %r15
@@ -40,10 +50,7 @@ display:
 play:
     PUSHQ  %rbp
     MOVQ   %rsp,               %rbp
-    PUSHQ  %rdi
-    PUSHQ  %rsi
-    PUSHQ  %rdx
-    SUBQ   $16,                %rsp
+    SUBQ   $8,                 %rsp
     PUSHQ  %rbx
     PUSHQ  %r12
     PUSHQ  %r13
@@ -51,9 +58,14 @@ play:
     PUSHQ  %r15
     #before
 
-    MOVQ   $s0,                %rdi
-    MOVQ   $6,                 %rsi
+    MOVL   $19,                %edi
+    CALL   malloc
+    MOVL   $5,                 (%rax)
+    MOVL   $s2,                4(%rax)
+    MOVQ   %rax,               %rdi
     CALL   display
+    MOVL   %eax,               %r8d
+play_return:
     #after
 
     POPQ   %r15
@@ -69,10 +81,7 @@ play:
 _start:
     PUSHQ  %rbp
     MOVQ   %rsp,               %rbp
-    PUSHQ  %rdi
-    PUSHQ  %rsi
-    PUSHQ  %rdx
-    SUBQ   $16,                %rsp
+    SUBQ   $8,                 %rsp
     PUSHQ  %rbx
     PUSHQ  %r12
     PUSHQ  %r13
@@ -81,6 +90,12 @@ _start:
     #before
 
     CALL   play
+    MOVL   %eax,               %r8d
+    MOVL   $1,                 %eax
+    MOVL   $0,                 %ebx
+    INT    $0x80
+      
+main_return:
     #after
 
     POPQ   %r15
@@ -93,5 +108,5 @@ _start:
     MOVL   $1,                 %eax
     MOVL   $0,                 %ebx
     INT    $0x80
-    
+      
 

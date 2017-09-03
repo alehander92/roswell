@@ -1,13 +1,19 @@
-import backend, parser, typechecker, "converter", aasm, triplet, emitter, c_emitter, top, binary
+import backend, parser, typechecker, "converter", aasm, triplet, terminal, emitter, c_emitter, optimizers/assembler, optimizers/c, optimizers/math, top, binary
 import strutils, osproc
 
 proc backendIndependentCompile*(source: string, name: string): TripletModule =
-  return convert(typecheck(parse(source, name), TOP_ENV))
+  var nonOptimized = convert(typecheck(parse(source, name), TOP_ENV))
+  mathOptimize(nonOptimized)
+  var optimized = nonOptimized
+  styledWriteLine(stdout, fgMagenta, "OPTIMIZE:\n", $optimized, resetStyle)
+  result = optimized
 
 proc compileToBackend*(module: TripletModule, backend: Backend): string =
   case backend:
   of BackendAsm:
-    return toBinary(emitter.emit(module))
+    var res = emitter.emit(module)
+    asmOptimize(res)
+    return toBinary(res)
   of BackendC:
     return cText(c_emitter.emit(module))
   of BackendCIL:

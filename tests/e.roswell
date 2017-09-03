@@ -1,0 +1,9 @@
+Int -> Int
+def name(a):
+  var s = *(*(7 24) 5)
+  return a
+
+def main:
+  name(2)
+
+

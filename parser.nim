@@ -55,8 +55,8 @@ proc parse*(source: string, name: string): Node =
     raise newException(RoswellError, "left: '$1'" % left)
 
 var TAB = 2
-var INDENT_TYPE = "@@@INDENT@@@"
-var DEDENT_TYPE = "@@@DEDENT@@@"
+var INDENT_TYPE = "{{{INDENT}}}"
+var DEDENT_TYPE = "{{{DEDENT}}}"
 
 proc a(source: string): string =
   var indent = 0
@@ -82,6 +82,16 @@ proc a(source: string): string =
       for k in 0..<(indent - offset div TAB):
         res.add(DEDENT_TYPE)
       res.add(line[offset..^1])
+    if len(res) > 0:
+      var s = false
+      var m = ""
+      for z, c in res[^1]:
+        if c == '\'' and (z == 0 or res[^1][z - 1] != '\\'):
+          s = not s
+        elif c == '#' and not s:
+          break
+        m.add(c)
+      res[^1] = m
     indent = offset div TAB
   return "$1\n" % res.join("\n")
 
@@ -237,6 +247,26 @@ proc parseIf(buffer: string, depth: int = 0): (bool, string, Node) =
             return (true, left, f)
   return (false, buffer, nil)
 
+proc parseAssignment(buffer: string, depth: int = 0): (bool, string, Node) =
+  var f = Node(kind: AAssignment)
+  decl
+
+  (success, left, node) = parseLabel(buffer, depth + 1)
+  if success:
+    f.target = node.s
+    if len(left) > 0 and left[0] == '@':
+      f.isDeref = true
+      left = left[1..^1]
+    left = skip(left)
+    raw("=")
+    if success:
+      left = skip(left)
+      (success, left, node) = parseExpression(left, depth + 1)
+      if success:
+        f.res = node
+        return (true, left, f)
+  return (false, buffer, nil)
+
 proc parseDefinition(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Definition")
   var f = Node(kind: ADefinition)
@@ -255,6 +285,7 @@ proc parseDefinition(buffer: string, depth: int = 0): (bool, string, Node) =
         (success, left, node) = parseExpression(left, depth + 1)
         if success:
           f.definition = Node(kind: AAssignment, target: f.id, res: node)
+          echo f
           return (true, left, f)
       else:
         raw("is")
@@ -266,8 +297,7 @@ proc parseDefinition(buffer: string, depth: int = 0): (bool, string, Node) =
             return (true, left, f)
   return (false, buffer, nil)
 
-
-var STATEMENT_FUNCTIONS = [parseReturn, parseIf, parseDefinition]
+var STATEMENT_FUNCTIONS = [parseAssignment, parseReturn, parseIf, parseDefinition]
 
 proc parseStatement(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Statement")
@@ -279,13 +309,25 @@ proc parseStatement(buffer: string, depth: int = 0): (bool, string, Node) =
       return (true, left, node)
   return (false, buffer, nil)
 
+proc parseDeref(buffer: string, depth: int): (bool, string, Node) =
+  testLog("Deref")
+  var f = Node(kind: ADeref)
+  decl
+
+
+  
+  if len(buffer) > 0 and buffer[0] == '@':
+    return (true, buffer[1..^1], f)
+  return (false, buffer, nil)
+
 proc parseExpression(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Expression")
   decl
   var basicNode: Node
   var helperNode: Node
   var expressionNode: Node
-  
+  var resultNode: Node
+
   (success, left, basicNode) = parseBasic(buffer, depth + 1)
   if success:
     left = skip(left)
@@ -293,9 +335,10 @@ proc parseExpression(buffer: string, depth: int = 0): (bool, string, Node) =
     if success:
       if helperNode != nil:
         helperNode = fillNode(basicNode, helperNode)
-        return (true, left, helperNode)
+        resultNode = helperNode
       else:
-        return (true, left, basicNode)
+        resultNode = basicNode
+      return (true, left, resultNode)
 
   (success, left, node) = parseRaw(left, "(", depth + 1)
   if success:
@@ -349,7 +392,21 @@ proc parseIndex(buffer: string, depth: int = 0): (bool, string, Node) =
       return (true, left[1..^1], f)
   return (false, buffer, nil)
 
-const HELPER_FUNCTIONS = @[parseMember, parseCall, parseIndex]
+proc parsePointer(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("Pointer")
+  var f = Node(kind: APointer)
+  decl
+
+  if len(buffer) == 0 or buffer[0] != '@':
+    return (false, buffer, nil)
+
+  (success, left, node) = parseExpression(buffer[1..^1], depth + 1)
+  if success:
+    f.targetObject = node
+    return (true, left, f)
+  return (false, buffer, nil)
+
+const HELPER_FUNCTIONS = @[parseMember, parseCall, parseIndex, parseDeref]
 
 proc parseHelper(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Helper")
@@ -440,12 +497,12 @@ proc parseString(buffer: string, depth: int = 0): (bool, string, Node) =
     return (false, buffer, nil)
   var left = buffer[1..^1]
   for a, b in left:
-    if b == '\'':
+    if b == '\'' and (a == 0 or left[a - 1] != '\\'):
       return (true, buffer[2 + a..^1], Node(kind: AString, s: $(buffer[1..a])))
   return (false, buffer, nil)
 
 
-var BASIC_FUNCTIONS = @[parseLabel, parseNumber, parseBool, parseString, parseArray, parseOperator] #, parseLabel, parseOperator, parseString]
+var BASIC_FUNCTIONS = @[parseLabel, parseNumber, parseBool, parseString, parseArray, parseOperator, parsePointer] #, parseLabel, parseOperator, parseString]
 
 proc parseBasic(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Basic")
@@ -478,13 +535,14 @@ proc parseWs(buffer: string, depth: int = 0): (bool, string, Node) =
 
 proc parseNl(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Nl")
-  for a, b in buffer:
+  var left = skip(buffer)
+  for a, b in left:
     if b notin NewLines:
       if a > 0:
-        return (true, buffer[a..^1], nil)
+        return (true, left[a..^1], nil)
       else:
         break
-    elif a == len(buffer) - 1:
+    elif a == len(left) - 1:
       return (true, "", nil)
   return (false, buffer, nil)
 
@@ -590,6 +648,11 @@ proc fillNode(node: Node, into: Node): Node =
       into.indexable = node
     else:
       into.indexable = fillNode(node, into.receiver)
+  of ADeref:
+    if into.derefedObject == nil:
+      into.derefedObject = node
+    else:
+      into.derefedObject = fillNode(node, into.derefedObject)
   else: discard
   return into
 

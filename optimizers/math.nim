@@ -1,7 +1,7 @@
 import ../triplet, ../ast, ../top
 import strutils, sequtils
 
-proc isMachine(label: string): bool
+proc isMachine*(label: string): bool
 proc constOp(op: Operator, left: Node, right: Node): Node
 proc replace(next: var Triplet, label: string, constant: TripletAtom)
 
@@ -27,7 +27,7 @@ proc mathOptimize*(module: var TripletModule) =
       inc z
     function.triplets = triplets
 
-proc isMachine(label: string): bool =
+proc isMachine*(label: string): bool =
   result = len(label) > 0 and label[0] == 't' and label[1..^1].isDigit()
 
 proc constOp(op: Operator, left: Node, right: Node): Node =

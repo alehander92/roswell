@@ -2,7 +2,7 @@ import ast, env, core, type_env, types, errors, helpers
 import tables, strutils, sequtils
 
 type
-  TripletKind* = enum TBinary, TUnary, TSave, TJump, TIf, TArg, TCall, TParam, TResult, TLabel, TInline, TIndex, TArray, TIndexSave
+  TripletKind* = enum TBinary, TUnary, TSave, TJump, TIf, TArg, TCall, TParam, TResult, TLabel, TInline, TIndex, TArray, TIndexSave, TAddr, TDeref
 
   Triplet* = ref object
     destination*: TripletAtom
@@ -16,6 +16,7 @@ type
       u*:           TripletAtom
     of TSave:
       value*:       TripletAtom
+      isDeref*:     bool
     of TJump:
       location*:    string
     of TIf:
@@ -46,6 +47,10 @@ type
       sIndexable*:  TripletAtom
       sIndex*:      TripletAtom
       sValue*:      TripletAtom
+    of TAddr:
+      addressObject*: TripletAtom
+    of TDeref:
+      derefedObject*: TripletAtom
 
   TripletAtomKind* = enum ULabel, UConstant
 
@@ -171,6 +176,16 @@ proc render*(triplet: Triplet, depth: int): string =
     second = $triplet.sIndexable
     third = $triplet.sIndex
     fourth = $triplet.sValue
+    equal = true
+  of TAddr:
+    first = $triplet.destination
+    second = "ADDRESS"
+    third = $triplet.addressObject
+    equal = true
+  of TDeref:
+    first = $triplet.destination
+    second = "DEREF"
+    third = $triplet.derefedObject
     equal = true
   result.add(leftAlign(first, 18, ' '))
   if equal:

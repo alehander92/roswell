@@ -112,9 +112,13 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
       raise newException(RoswellError, "invalid assignment")
     if not env.types.hasKey(node.target):
       raise newException(RoswellError, "undefined variable: $1" % node.target)
-    if env[node.target] != newRes.tag:
-      raise newException(RoswellError, "$1: expected $2, not $3" % [node.target, $env[node.target], $newRes.tag])
-    return Node(kind: AAssignment, target: node.target, res: newRes, tag: voidType)
+    if not node.isDeref:
+      if env[node.target] != newRes.tag:
+        raise newException(RoswellError, "$1: expected $2, not $3" % [node.target, simpleType(env[node.target]), simpleType(newRes.tag)])
+    else:
+      if env[node.target].kind != Complex or env[node.target].label != "Pointer" or env[node.target].args[0] != newRes.tag:
+        raise newException(RoswellError, "$1: expected a Pointer[$2], not $3" % [node.target, simpleType(newRes.tag), simpleType(env[node.target])])
+    return Node(kind: AAssignment, target: node.target, res: newRes, tag: voidType, isDeref: node.isDeref)
   of ADefinition:
     var newDefinition: Node
     var tag: Type
@@ -156,6 +160,15 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
     if newAValue.tag != newAIndex.tag:
       raise newException(RoswellError, "invalid operation")
     return Node(kind: AIndexAssignment, aIndex: newAIndex, aValue: newAValue, tag: voidType)
+  of APointer:
+    var newTargetObject = typecheckNode(node.targetObject, env)
+    var tag = Type(kind: Complex, label: "Pointer", args: @[newTargetObject.tag])
+    return Node(kind: APointer, targetObject: newTargetObject, tag: tag)
+  of ADeref:
+    var newDerefedObject = typecheckNode(node.derefedObject, env)
+    if newDerefedObject.tag.kind != Complex or newDerefedObject.tag.label != "Pointer":
+      raise newException(RoswellError, "invalid deref")
+    return Node(kind: ADeref, derefedObject: newDerefedObject, tag: newDerefedObject.tag.args[0])
   return node
 
 

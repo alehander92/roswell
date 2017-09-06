@@ -96,7 +96,7 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     result = nil
   of AAssignment:
     var res = convertNode(node.res, module, function)
-    append Triplet(kind: TSave, value: res, destination: uLabel(node.target, node.res.tag))
+    append Triplet(kind: TSave, value: res, destination: uLabel(node.target, node.res.tag), isDeref: node.isDeref)
     inc function.locals
     result = nil
   of AInt, AFloat, ABool, AString:
@@ -127,6 +127,16 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     var sValue = convertNode(node.aValue, module, function)
     var destination = module.newTemp(node.aValue.tag)
     append Triplet(kind: TIndexSave, destination: destination, sIndexable: sIndexable, sIndex: sIndex, sValue: sValue)
+    result = destination
+  of APointer:
+    var destination = module.newTemp(node.tag)
+    var addressObject = convertNode(node.targetObject, module, function)
+    append Triplet(kind: TAddr, destination: destination, addressObject: addressObject)
+    result = destination
+  of ADeref:
+    var destination = module.newTemp(node.tag)
+    var derefedObject = convertNode(node.derefedObject, module, function)
+    append Triplet(kind: TDeref, destination: destination, derefedObject: derefedObject)
     result = destination
   else:
     result = nil

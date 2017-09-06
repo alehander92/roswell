@@ -32,15 +32,20 @@ type
     index*:     int
 
 
-  OpcodeKind* = enum MOV, ADD, SUB, DIVL, MUL, IMUL, INT, PUSHQ, POPQ, SUBQ, CALL, RET, COMMENT, INLINE, LABEL, JNE, JE, JG, JGE, JL, JLE, JMP, CMP, A
+  OpcodeKind* = enum 
+    MOV, LEA,
+    ADD, SUB, SUBQ, DIVL, MUL, IMUL,
+    INT, PUSHQ, POPQ,
+    CALL, RET, COMMENT, INLINE,
+    LABEL, JNE, JE, JG, JGE, JL, JLE, JMP, CMP, A
 
-  MovSuffix* = enum MOVB, MOVW, MOVL, MOVQ
+  MovSuffix* = enum MOVB, MOVW, MOVL, MOVQ, MOVLEA
 
   Size* = enum SIZEBYTE, SIZEWORD, SIZEDOUBLEWORD, SIZEQUADWORD
 
   Opcode* = object
     case kind*: OpcodeKind
-    of MOV, SUBQ:
+    of MOV, SUBQ, LEA:
       source*:      Operand
       destination*: Operand
       mov*:         MovSuffix
@@ -58,12 +63,14 @@ type
     of RET: 
       discard
 
-  OperandKind* = enum OpConstant, OpRegister, OpAddress, OpAddressRange
+  OperandKind* = enum OpConstant, OpInt, OpRegister, OpAddress, OpAddressRange
 
   Operand* = ref object
     case kind*: OperandKind
     of OpConstant:
       value*: string
+    of OpInt:
+      i*: int
     of OpRegister:
       register*: Register
     of OpAddress:
@@ -103,6 +110,8 @@ proc `==`*(left: Operand, right: Operand): bool =
     case left.kind:
     of OpConstant:
       return left.value == right.value
+    of OpInt:
+      return left.i == right.i
     of OpRegister:
       return left.register == right.register
     of OpAddress:

@@ -1,7 +1,7 @@
-import strutils, sequtils
+import strutils, sequtils, tables
 
 type
-  TypeKind* = enum Simple, Complex, Generic, Overload
+  TypeKind* = enum Simple, Complex, Generic, Overload, Record
 
   Type* = ref object
     label*: string
@@ -14,6 +14,8 @@ type
       complex*: Type
     of Overload:
       overloads*: seq[Type]
+    of Record:
+      fields*: Table[string, Type]
 
 const Function* = "Function"
 
@@ -33,6 +35,8 @@ proc render*(typ: Type, depth: int): string =
       "Generic{$1, $2, $3}" % [typ.label, typ.genericArgs.mapIt($it).join(" "), $typ.complex]
     of Overload:
       "Overload{$1, $2}" % [typ.label, typ.overloads.mapIt($it).join("  ")]
+    of Record:
+      "Record{$1}" % typ.label
   result = repeat("  ", depth) & value
 
 proc `$`*(typ: Type): string =
@@ -68,6 +72,8 @@ proc `==`*(typ: Type, b: Type): bool =
       return allZip(typ.genericArgs, b.genericArgs) and typ.complex == b.complex
     of Overload:
       return allZip(typ.overloads, b.overloads)
+    of Record:
+      return true
 
 proc simpleType*(typ: Type): string =
   if typ == nil:
@@ -79,5 +85,7 @@ proc simpleType*(typ: Type): string =
     result = "$1[$2]" % [typ.label, typ.args.mapIt(simpleType(it)).join(" ")]
   of Generic:
     result = "$1[$2][$3]" % [typ.label, typ.genericArgs.join(" "), typ.complex.args.mapIt(simpleType(it)).join(" ")]
+  of Record:
+    result = typ.label
   else:
     result = ""

@@ -33,13 +33,25 @@ proc toBinary(operand: Operand): string =
   result = case operand.kind:
   of OpConstant:
     "$$$1" % operand.value
+  of OpInt:
+    var h = "0x$1" % toHex(abs(operand.i)).strip(chars={'0'}, trailing=false)
+    if len(h) == 2:
+      h = "0x0"
+    elif operand.i < 0:
+      h = "-$1" % h
+    "$$$1" % h
   of OpRegister:
     "%$1" % toLowerAscii($operand.register)
   of OpAddress:
     "($1)" % toBinary(operand.address)
   of OpAddressRange:
+    var h = "0x$1" % toHex(abs(operand.offset)).strip(chars={'0'}, trailing=false).toLowerAscii()
+    if len(h) == 2:
+      h = ""
+    if operand.offset < 0 and len(h) > 0:
+      h = "-$1" % h
     if operand.index == nil:
-      "$1($2)" % [$operand.offset, toBinary(operand.arg)]
+      "$1($2)" % [h, toBinary(operand.arg)]
     else:
       var index = toBinary(operand.index)
       if index[0] == '$':
@@ -48,11 +60,13 @@ proc toBinary(operand: Operand): string =
       var offset = ""
       if operand.arg.kind == OpAddressRange and operand.arg.index == nil:
         arg = toBinary(operand.arg.arg)
-        offset = $operand.arg.offset
+        offset = "0x$1" % toHex(abs(operand.arg.offset)).strip(chars={'0'}, trailing=false).toLowerAscii()
+        if operand.arg.offset < 0 and len(offset) > 2:
+          offset = "-$1" % offset
       else:
         arg = toBinary(operand.arg)
-        offset = $operand.offset
-      if offset == "0":
+        offset = h
+      if offset == "0x0" or offset == "0x":
         offset = ""
       "$1($2, $3, $4)" % [offset, arg, index, $OFFSETS[operand.indexSize]]
 
@@ -65,12 +79,15 @@ proc toBinary(opcode: Opcode): string =
     return "$1:" % opcode.label
   var name = ""
   if opcode.kind == MOV:
-    name = $opcode.mov
+    if opcode.mov == MOVLEA:
+      name = "LEA"
+    else:
+      name = $opcode.mov
   else:
     name = $opcode.kind
   result = repeat("    ", 1) & leftAlign(toUpperAscii(name), 7, ' ')
   var arg = case opcode.kind:
-  of MOV, SUBQ:
+  of MOV, SUBQ, LEA:
     "$1$2" % [leftAlign("$1," % toBinary(opcode.source), 20, ' '), toBinary(opcode.destination)]
   of INT:
     $opcode.arg
@@ -80,7 +97,7 @@ proc toBinary(opcode: Opcode): string =
     opcode.label
   of JMP, JNE:
     opcode.label
-  of CMP:
+  of CMP, ADD:
     "$1$2" % [leftAlign("$1," % toBinary(opcode.left), 20, ' '), toBinary(opcode.right)]
   else:
     ""

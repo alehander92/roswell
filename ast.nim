@@ -6,7 +6,7 @@ type
 
   Operator* = enum OpAnd, OpOr, OpEq, OpMod, OpAdd, OpSub, OpMul, OpDiv, OpNotEq, OpGt, OpGte, OpLt, OpLte, OpXor
 
-  NodeKind* = enum AProgram, AGroup, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment
+  NodeKind* = enum AProgram, AGroup, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref
 
   Node* = ref object of RootObj
     case kind*: NodeKind:
@@ -47,6 +47,7 @@ type
     of AAssignment:
       target*:        string
       res*:           Node
+      isDeref*:       bool
     of ADefinition:
       id*:            string
       definition*:    Node
@@ -59,6 +60,10 @@ type
     of AIndexAssignment:
       aIndex*:        Node
       aValue*:        Node
+    of APointer:
+      targetObject*:  Node
+    of ADeref:
+      derefedObject*: Node
     tag*:             Type
 
   NodeModule = enum MLib, MNative, MNim
@@ -143,6 +148,10 @@ proc render*(node: Node, depth: int): string =
       "AIndex($1 $2)" % [render(node.indexable, depth + 1).strip(leading=true), render(node.index, 0)]
     of AIndexAssignment:
       "AIndexAssignment($1):\n$2" % [render(node.aIndex, depth + 1).strip(leading=true), render(node.aValue, depth + 1)]
+    of APointer:
+      "APointer($1)" % [render(node.targetObject, 0)]
+    of ADeref:
+      "ADeref($1)" % [render(node.derefedObject, 0)]      
     else: ""
 
   result = repeat("  ", depth) & value

@@ -101,7 +101,10 @@ proc emitAtom(atom: TripletAtom, module: var CModule, function: var CFunction, d
     var label = module.env.getOrDefault(atom.label)
     if label == nil:
       module.env[atom.label] = atom.typ
-      cem_locals "  $1 $2;\n" % [cType(atom.typ), atom.label]
+      if atom.typ.kind != Complex or atom.typ.label != "Array":
+        cem_locals "  $1 $2;\n" % [cType(atom.typ), atom.label]
+      else:
+        cem_locals "  $1 $2[$3];\n" % [cType(atom.typ.args[0]), atom.label, atom.typ.args[1].label]
     cem atom.label
   of UConstant:
     case atom.node.kind:
@@ -168,9 +171,11 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     ema node.iindex, 0
     cem "]"
   of TArray:
-    ema node.destination, 0
+    assert node.destination.kind == ULabel
     assert node.destination.typ.kind == Complex
-    cem " = ($1)malloc(sizeof($2) * $3)" % [cType(node.destination.typ), cType(node.destination.typ.args[0]), $node.arrayCount]
+    module.env[node.destination.label] = node.destination.typ
+    cem_locals "  $1 $2[$3];\n" % [cType(node.destination.typ.args[0]), node.destination.label, $node.arrayCount]
+    result = (true, true) # miss ; \n    
   of TIndexSave:
     ema node.sIndexable, 0
     cem "["

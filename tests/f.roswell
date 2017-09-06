@@ -1,0 +1,6 @@
+def main:
+  var a = 4   # Int
+  var p = @a  # Pointer[Int]
+  p@ = 2
+  var b = p@  # Int
+  display(b)

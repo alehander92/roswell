@@ -1,9 +1,10 @@
-import backend, parser, typechecker, "converter", aasm, triplet, terminal, emitter, c_emitter, optimizers/assembler, optimizers/c, optimizers/math, top, binary
+import backend, parser, typechecker, "converter", aasm, triplet, terminal, emitter, c_emitter, optimizers/assembler, optimizers/c, optimizers/math, "optimizers/array", top, binary
 import strutils, osproc
 
 proc backendIndependentCompile*(source: string, name: string): TripletModule =
   var nonOptimized = convert(typecheck(parse(source, name), TOP_ENV))
   mathOptimize(nonOptimized)
+  arrayOptimize(nonOptimized)
   var optimized = nonOptimized
   styledWriteLine(stdout, fgMagenta, "OPTIMIZE:\n", $optimized, resetStyle)
   result = optimized

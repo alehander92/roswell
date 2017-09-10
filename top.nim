@@ -18,18 +18,18 @@ var logicBoolBool* =                functionType(@[boolType, boolType, boolType]
 var compareIntIntBool* =            functionType(@[intType, intType, boolType])
 
 # later in lib
-var mapType* =                      functionType(
-  @[complexType("Array", simpleType("T")),
-    functionType(@[simpleType("T"), simpleType("U")]),
-    complexType("Array", simpleType("U"))],
-  @["T", "U"])
+# var mapType* =                      functionType(
+#   @[complexType("Sequence", simpleType("T")),
+#     functionType(@[simpleType("T"), simpleType("U")]),
+#     complexType("Sequence", simpleType("U"))],
+#   @["T", "U"])
 
 TOP_ENV.define("display",           functionType(@[defaultType, voidType]), predefined=core.PDisplayDefinition)
 TOP_ENV.define("text",              functionType(@[stringType, stringType]), predefined=core.PTextDefinition)
 TOP_ENV.define("text",              functionType(@[intType, stringType]), predefined=core.PTextIntDefinition)
 TOP_ENV.define("text",              functionType(@[defaultType, stringType]), predefined=core.PTextDefaultDefinition)
 TOP_ENV.define("exit",              functionType(@[intType, voidType]), predefined=core.PExitDefinition)
-TOP_ENV.define("map",               mapType)
+# TOP_ENV.define("map",               mapType)
 
 TOP_ENV.define("+",                 mathIntInt)
 TOP_ENV.define("-",                 mathIntInt)

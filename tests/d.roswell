@@ -1,4 +1,4 @@
-_[Int, 2] -> Int
+_[Int 2] -> Int
 def a(b):
   return +(b[0] b[1])
 

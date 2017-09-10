@@ -62,12 +62,30 @@ proc cType(typ: Type): string =
   of Complex:
     case typ.label:
       of "Array", "Pointer": "$1*" % cType(typ.args[0])
+      of "Function": "*$1($2)" % [cType(typ.args[^1]), typ.args[0..^2].mapIt(cType(it)).join(", ")]
       else: typ.label
+  of Overload:
+    cType(typ.overloads[0])
   else:
-    typ.label
+    if typ.label != nil:
+      typ.label
+    else:
+      ""
+
+proc cTypeDecl(typ: Type, label: string): string =
+  if typ.kind == Overload:
+    result = cTypeDecl(typ.overloads[0], label)
+  elif typ.kind != Complex or typ.label != "Array" and typ.label != "Function":
+    result = "$1 $2" % [cType(typ), label]
+  elif typ.label == "Array":
+    result = "$1 $2[$3]" % [cType(typ.args[0]), label, typ.args[1].label]
+  else:
+    result = "$1 ($2)($3)" % [cType(typ.args[^1]), label, typ.args[0..^2].mapIt(cType(it)).join(",")]
+
+      
 
 proc cParam(param: string, typ: Type): string =
-  result = "$1 $2" % [cType(typ), param]
+  result = cTypeDecl(typ, param) #"$1 $2" % [cType(typ), param]
 
 proc cHead(node: TripletFunction, module: var CModule, function: var CFunction): string =
   var params: seq[string] = @[]
@@ -112,10 +130,7 @@ proc emitAtom(atom: TripletAtom, module: var CModule, function: var CFunction, d
     var label = module.env.getOrDefault(atom.label)
     if label == nil:
       module.env[atom.label] = atom.typ
-      if atom.typ.kind != Complex or atom.typ.label != "Array":
-        cem_locals "  $1 $2;\n" % [cType(atom.typ), atom.label]
-      else:
-        cem_locals "  $1 $2[$3];\n" % [cType(atom.typ.args[0]), atom.label, atom.typ.args[1].label]
+      cem_locals "  $1;\n" % cTypeDecl(atom.typ, atom.label)
     cem atom.label
   of UConstant:
     case atom.node.kind:
@@ -159,7 +174,7 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     ema node.conditionLabel, 0
     cem " $1 1) goto $2" % [C_OPERATORS[node.condition], node.label]
   of TResult:
-    cem "result = "
+    cem "result0 = "
     ema node.destination, 0
   of TArg:
     var raw = function.raw
@@ -171,6 +186,9 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     result = (true, true) # miss ; \n
   of TCall:
     var args = function.args.splitLines()[^node.count..^1]
+    if node.f.typ.kind != Simple or node.f.typ.label != "Void":
+      ema node.f, 0
+      cem " = "
     cem "$1($2)" % [node.function, args.join(", ")]
   of TInline:
     cem core.cDefinitions[node.code]
@@ -188,8 +206,10 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
   of TArray:
     assert node.destination.kind == ULabel
     assert node.destination.typ.kind == Complex
-    module.env[node.destination.label] = node.destination.typ
-    cem_locals "  $1 $2[$3];\n" % [cType(node.destination.typ.args[0]), node.destination.label, $node.arrayCount]
+    var label = module.env.getOrDefault(node.destination.label)
+    if label == nil:
+      module.env[node.destination.label] = node.destination.typ
+      cem_locals "$1;\n" % cTypeDecl(node.destination.typ, node.destination.label)
     result = (true, true) # miss ; \n    
   of TIndexSave:
     ema node.sIndexable, 0
@@ -222,11 +242,14 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
 proc emitFunction(node: TripletFunction, module: var CModule): CFunction =
   var function = CFunction(label: node.label, args: "", header: "", raw: "", locals: "", depth: 0, j: 0)
   module.env = newEnv[Type](module.env)
+  if node.typ.args[^1].kind == Complex and node.typ.args[^1].label == "Array":
+    node.typ.args[^1].label = "Pointer"
+    discard node.typ.args[^1].args.pop()
   function.header = cHead(node, module, function)
   function.depth = 1
   assert node.typ.kind == Complex
   if function.label != "main" and node.typ.args[^1] != voidType:
-    function.locals.add("  $1 result;\n" % cType(node.typ.args[^1]))
+    function.locals.add("  $1;\n" % cTypeDecl(node.typ.args[^1], "result0"))
   for j, triplet in node.triplets[node.paramCount..^1]:
     function.j = node.paramCount + j
     var (missSemicolon, missNewline) = emitValue(triplet, module, function, function.depth)
@@ -236,7 +259,7 @@ proc emitFunction(node: TripletFunction, module: var CModule): CFunction =
       cem "\n"
   cem "\n"
   if function.label != "main" and node.typ.args[^1] != voidType:
-    cem "  return result;"
+    cem "  return result0;"
   cem "\n}\n"
   module.env = module.env.parent
   result = function

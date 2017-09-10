@@ -88,6 +88,24 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     else:
       append Triplet(kind: TLabel, l: label, location: node.location)
     result = nil
+  of AForEach:
+    var index = if len(node.forEachIndex) > 0: uLabel(node.forEachIndex, intType) else: module.newTemp(intType)
+    append Triplet(kind: TSave, value: TripletAtom(kind: UConstant, node: Node(kind: AInt, value: 0)), destination: index, isDeref: false, location: node.location)
+    var label = module.newLabel()
+    var endLabel = module.newLabel()
+    append Triplet(kind: TLabel, l: label, location: node.location)
+    assert node.forEachSeq.tag.kind == Complex and node.forEachSeq.tag.label == "Array"
+    var limit = parseInt(node.forEachSeq.tag.args[1].label)
+    var test = module.newTemp(boolType)
+    append Triplet(kind: TBinary, op: OpLt, left: index, right: TripletAtom(kind: UConstant, node: Node(kind: AInt, value: limit)), destination: test, location: node.location)
+    append Triplet(kind: TIf, conditionLabel: test, condition: OpNotEq, label: endLabel)    
+    var forEachSeq = convertNode(node.forEachSeq, module, function)
+    var iter = uLabel(node.iter, node.forEachSeq.tag.args[0])
+    append Triplet(kind: TIndex, indexable: forEachSeq, iindex: index, destination: iter, location: node.location)
+    discard convertNode(node.forEachBlock, module, function)
+    append Triplet(kind: TBinary, op: OpAdd, left: index, right: TripletAtom(kind: UConstant, node: Node(kind: AInt, value: 1)), destination: index, location: node.location)
+    append Triplet(kind: TJump, jLocation: label, location: node.location)
+    append Triplet(kind: TLabel, l: endLabel, location: node.forEachBlock.nodes[^1].location)
   of AMember:
     raise newException(RoswellError, "unimplemented member")
   of ADefinition:

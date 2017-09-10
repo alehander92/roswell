@@ -11,7 +11,7 @@ type
 
 proc getOrDefault*(t: TypeEnv, title: string): Type
 
-proc matchOrDefault*(t: var TypeEnv, title: string, args: seq[Type]): (bool, int, Type, Table[string, Type])
+proc matchOrDefault*(typeEnv: var TypeEnv, title: string, args: seq[Type]): (bool, int, Type, Table[string, Type])
 
 proc `[]`*(t: TypeEnv, title: string): Type =
   result = getOrDefault(t, title)
@@ -36,28 +36,32 @@ proc match*(t: var TypeEnv, title: string, args: seq[Type]): (bool, int, Type, T
   if result[2] == nil:
     raise newException(RoswellError, "undefined $1 $2" % [title, args.mapIt($it).join(",")])
 
-proc matchOrDefault*(t: var TypeEnv, title: string, args: seq[Type]): (bool, int, Type, Table[string, Type]) =
-  var top = t.top
-  if top.types.hasKey(title):
-    if top.types[title].kind == Overload:
-      for z, candidate in top.types[title].overloads:
-        if candidate.label == "Function":
-          var genericArgs: seq[string] = @[]
-          var callArgs: seq[Type] = @[]
-          if candidate.kind == Complex:
-            genericArgs = @[]
-            callArgs = candidate.args[0.. < ^1]
-          else:
-            assert candidate.kind == Generic and candidate.complex.kind == Complex
-            genericArgs = candidate.genericArgs
-            callArgs = candidate.complex.args[0.. < ^1]
-          var map = initTable[string, Type]()
-          if unifyAll(args, callArgs, genericArgs, map):
-            for predefined in top.predefined.mitems:
-              if predefined.function == title:
-                predefined.called = true
-                break
-            return (len(top.types[title].overloads) == 1, z, candidate, map)
+proc matchOrDefault*(typeEnv: var TypeEnv, title: string, args: seq[Type]): (bool, int, Type, Table[string, Type]) =
+  var t = typeEnv.getOrDefault(title)
+  if t != nil:
+    var overloads: seq[Type] = @[]
+    if t.kind == Overload:
+      overloads = t.overloads
+    else:
+      overloads = @[t]
+    for z, candidate in overloads:
+      if candidate.label == "Function":
+        var genericArgs: seq[string] = @[]
+        var callArgs: seq[Type] = @[]
+        if candidate.kind == Complex:
+          genericArgs = @[]
+          callArgs = candidate.args[0.. < ^1]
+        else:
+          assert candidate.kind == Generic and candidate.complex.kind == Complex
+          genericArgs = candidate.genericArgs
+          callArgs = candidate.complex.args[0.. < ^1]
+        var map = initTable[string, Type]()
+        if unifyAll(args, callArgs, genericArgs, map):
+          for predefined in typeEnv.top.predefined.mitems:
+            if predefined.function == title:
+              predefined.called = true
+              break
+          return (len(overloads) == 1, z, candidate, map)
   return (false, 0, nil, initTable[string, Type]())
 
 proc getOrDefault*(t: TypeEnv, title: string): Type =

@@ -45,7 +45,7 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
     return Node(kind: ABool, b: node.b, tag: boolType, location: node.location)
   of ACall:
     var newArgs: seq[Node] = node.args.mapIt(typecheckNode(it, env))
-    var tags = newArgs.mapIt(it.tag)
+    var tags = newArgs.mapIt(if it.tag.kind != Overload: it.tag else: it.tag.overloads[0])
     # for now labels
     var b: bool
     var i: int
@@ -127,6 +127,25 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
     else:
       newFail = typecheckNode(node.fail, env)
     return Node(kind: AIf, condition: newCondition, success: newSuccess, fail: newFail, tag: voidType, location: node.location)
+  of AForEach:
+    if len(node.forEachIndex) > 0:
+      var index = env.getOrDefault(node.forEachIndex)
+      if index != nil:
+        if index != intType:
+          raise newException(RoswellError, "for each index $1 should be int, not $2" % [node.forEachIndex, $index])
+      else:
+        env[node.forEachIndex] = intType
+    var newForEachSeq = typecheckNode(node.forEachSeq, env)
+    if newForEachSeq.tag.kind != Complex or newForEachSeq.tag.label != "Array" and newForEachSeq.tag.label != "List":
+      raise newException(RoswellError, "for each seq should be Array or List, not $1" % $newForEachSeq.tag)
+    var iter = env.getOrDefault(node.iter)
+    if iter != nil:
+      if iter != newForEachSeq.tag.args[0]:
+        raise newException(RoswellError, "for each iter $1 should be $2, not $3" % [node.iter, $newForEachSeq.tag.args[0], $iter])
+    else:
+      env[node.iter] = newForEachSeq.tag.args[0]
+    var newForEachBlock = typecheckNode(node.forEachBlock, env)
+    return Node(kind: AForEach, forEachIndex: node.forEachIndex, iter: node.iter, forEachSeq: newForEachSeq, forEachBlock: newForEachBlock, tag: voidType, location: node.location)
   of AAssignment:
     var newRes = typecheckNode(node.res, env)
 

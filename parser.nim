@@ -1,7 +1,7 @@
 import ast, errors, types
 import tables, strutils, sequtils, terminal
 
-const test = false
+const test = true
 
 proc a(source: string): string
 
@@ -12,6 +12,7 @@ proc parseArgs(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseGroup(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseReturn(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseIf(buffer: string, depth: int = 0): (bool, string, Node)
+proc parseForEach(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseRaw(buffer: string, s: string, depth: int = 0): (bool, string, Node)
 proc parseStatement(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseExpression(buffer: string, depth: int = 0): (bool, string, Node)
@@ -19,7 +20,7 @@ proc parseBasic(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseHelper(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseWs(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseNl(buffer: string, depth: int = 0): (bool, string, Node)
-proc parseType(buffer: string, depth: int = 0): (bool, string, Node)
+proc parseType(buffer: string, depth: int = 0, application: bool = false): (bool, string, Node)
 proc parseLabel(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseIndent(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseDedent(buffer: string, depth: int = 0): (bool, string, Node)
@@ -77,7 +78,7 @@ proc preprocess(source: string, id: int): seq[Location] =
         column = 1
         inc line
         inc z
-        echo result.filterIt(it.line == line - 1)
+        # echo result.filterIt(it.line == line - 1)
         continue
       inc column
       inc z
@@ -187,20 +188,12 @@ proc parseSignature(buffer: string, depth: int = 0): (bool, string, Node) =
     return (true, buffer, f)
   else:
     f.types = Type(kind: Complex, label: Function, args: @[])
-    while true:
-      (success, left, node) = parseType(left, depth + 1)
-      if success and node.kind == AType:
-        f.types.args.add(node.typ)
-        left = skip(left)
-        if len(left) >= 2 and left[0..1] == "->":
-          left = left[2..^1]
-        left = skip(left)
-      elif not success:
-        (success, left, node) = parseNl(left, depth + 1)
-        if success:
-          return (true, left, f)
-        else:
-          return (false, buffer, nil)
+    (success, left, node) = parseType(left, depth + 1, application=true)
+    if success and node.kind == AType:
+      f.types = node.typ
+      (success, left, node) = parseNl(left, depth + 1)
+      if success:
+        return (true, left, f)
 
 proc parseHead(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Head")
@@ -259,6 +252,7 @@ proc parseGroup(buffer: string, depth: int = 0): (bool, string, Node) =
       if success:
         f.nodes.add(node)
         (success, left, z) = parseNl(left, depth + 1)
+        success = true
       if not success:
         (success, left, z) = parseDedent(left, depth + 1)
         if success:
@@ -309,6 +303,44 @@ proc parseIf(buffer: string, depth: int = 0): (bool, string, Node) =
             return (true, left, f)
   return (false, buffer, nil)
 
+proc parseForEach(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("ForEach")
+  var f = Node(kind: AForEach, location: loc)
+  decl
+  left = buffer
+  raw("for")
+  var firstLabel: Node
+  var secondLabel: Node
+  if success:
+    left = skip(left)
+    (success, left, node) = parseLabel(left, depth + 1)
+    if success and node.kind == ALabel:
+      firstLabel = node
+      left = skip(left)
+      (success, left, node) = parseLabel(left, depth + 1)
+      if success and node.kind == ALabel:
+        secondLabel = node
+        left = skip(left)
+      if secondLabel == nil:
+        f.forEachIndex = ""
+        f.iter = firstLabel.s
+      else:
+        f.forEachIndex = firstLabel.s
+        f.iter = secondLabel.s
+      raw("in")
+      if success:
+        left = skip(left)
+        (success, left, node) = parseExpression(left, depth + 1)
+        if success:
+          f.forEachSeq = node
+          raw(":")
+          if success:
+            (success, left, node) = parseGroup(left, depth + 1)
+            if success:
+              f.forEachBlock = node
+              return (true, left, f)
+  return (false, buffer, nil)
+
 proc parseAssignment(buffer: string, depth: int = 0): (bool, string, Node) =
   var f = Node(kind: AAssignment, location: loc)
   decl
@@ -316,10 +348,33 @@ proc parseAssignment(buffer: string, depth: int = 0): (bool, string, Node) =
   (success, left, node) = parseLabel(buffer, depth + 1)
   if success:
     f.target = node.s
-    if len(left) > 0 and left[0] == '@':
+    if len(left) > 0 and left[0] == '[':
+      f = Node(kind: AIndexAssignment, location: loc)
+      f.aIndex = Node(kind: AIndex, indexable: node, location: loc)
+      left = left[1..^1]
+      left = skip(left)
+      (success, left, node) = parseExpression(left, depth + 1)
+      if success:
+        f.aIndex.index = node
+        left = skip(left)
+        raw("]")
+        if success:
+          left = skip(left)
+
+          raw("=")
+          if success:
+            left = skip(left)
+
+            (success, left, node) = parseExpression(left, depth + 1)
+            if success:
+              f.aValue = node
+              return (true, left, f)
+      return (false, buffer, nil)
+    elif len(left) > 0 and left[0] == '@':
       f.isDeref = true
       left = left[1..^1]
     left = skip(left)
+
     raw("=")
     if success:
       left = skip(left)
@@ -341,6 +396,7 @@ proc parseDefinition(buffer: string, depth: int = 0): (bool, string, Node) =
     if success:
       f.id = node.s
       left = skip(left)
+
       raw("=")
       if success:
         left = skip(left)
@@ -349,6 +405,7 @@ proc parseDefinition(buffer: string, depth: int = 0): (bool, string, Node) =
           f.definition = Node(kind: AAssignment, target: f.id, res: node, location: locLeft)
           return (true, left, f)
       else:
+
         raw("is")
         if success:
           left = skip(left)
@@ -358,7 +415,7 @@ proc parseDefinition(buffer: string, depth: int = 0): (bool, string, Node) =
             return (true, left, f)
   return (false, buffer, nil)
 
-var STATEMENT_FUNCTIONS = [parseAssignment, parseReturn, parseIf, parseDefinition]
+var STATEMENT_FUNCTIONS = [parseAssignment, parseReturn, parseIf, parseForEach, parseDefinition]
 
 proc parseStatement(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Statement")
@@ -607,14 +664,28 @@ proc parseNl(buffer: string, depth: int = 0): (bool, string, Node) =
       return (true, "", nil)
   return (false, buffer, nil)
 
-proc parseType(buffer: string, depth: int = 0): (bool, string, Node) =
+proc parseType(buffer: string, depth: int = 0, application: bool = false): (bool, string, Node) =
   testLog("Type")
   var f = Node(kind: AType, location: loc)
   decl
   left = skip(buffer)
   if len(left) == 0:
     return (false, buffer, nil)
-  if left[0] == '[':
+
+  if application:
+    f.typ = Type(kind: Complex, label: Function, args: @[])
+    while true:
+      (success, left, node) = parseType(left, depth + 1)
+      if success and node.kind == AType:
+        f.typ.args.add(node.typ)
+        left = skip(left)
+        if len(left) >= 2 and left[0..1] == "->":
+          left = left[2..^1]
+        left = skip(left)
+      elif not success:
+        return (true, left, f)
+    return (false, buffer, nil)
+  elif left[0] == '[':
     (success, left, node) = parseType(left[1..^1], depth + 1)
     if success and node.kind == AType and len(left) > 0 and left[0] == ']':
       f.typ = Type(kind: Complex, label: "List", args: @[node.typ])
@@ -622,13 +693,19 @@ proc parseType(buffer: string, depth: int = 0): (bool, string, Node) =
   elif len(left) > 1 and left[0] == '_' and left[1] == '[':
     (success, left, node) = parseType(left[2..^1], depth + 1)
     if success and node.kind == AType:
-      raw(",")
       left = skip(left)
       var intNode: Node
       (success, left, intNode) = parseNumber(left, depth + 1)
       if success and intNode.kind == AInt and len(left) > 0 and left[0] == ']':
         f.typ = Type(kind: Complex, label: "Array", args: @[node.typ, Type(kind: Simple, label: $intNode.value)])
         return (true, left[1..^1], f)
+  elif len(left) > 1 and left[0] == '(':
+    (success, left, node) = parseType(left[1..^1], depth + 1, application=true)
+    if success and node.kind == AType:
+      raw(")")
+      if success:
+        f.typ = node.typ
+        return (true, left, f)
   else:
     (success, left, node) = parseLabel(left, depth + 1)
     if success and node.kind == ALabel:

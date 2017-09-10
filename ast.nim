@@ -6,7 +6,7 @@ type
 
   Operator* = enum OpAnd, OpOr, OpEq, OpMod, OpAdd, OpSub, OpMul, OpDiv, OpNotEq, OpGt, OpGte, OpLt, OpLte, OpXor
 
-  NodeKind* = enum AProgram, AGroup, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref
+  NodeKind* = enum AProgram, AGroup, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AForEach, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref
 
   Node* = ref object of RootObj
     location*: Location
@@ -45,6 +45,11 @@ type
       condition*:     Node
       success*:       Node
       fail*:          Node
+    of AForEach:
+      iter*:          string
+      forEachIndex*:  string
+      forEachSeq*:    Node
+      forEachBlock*:  Node
     of AAssignment:
       target*:        string
       res*:           Node
@@ -148,6 +153,13 @@ proc render*(node: Node, depth: int): string =
         repeat("  ", depth + 1),
         render(node.success, depth + 2),
         render(node.fail, depth + 2)
+      ]
+    of AForEach:
+      "AForEach($1$2 in $3):\n$4" % [
+        if len(node.forEachIndex) > 0: "$1 " % node.forEachIndex else: "",
+        node.iter,
+        render(node.forEachSeq, 0),
+        render(node.forEachBlock, depth + 1)
       ]
     of AAssignment:
       "AAssignment($1):\n$2" % [node.target, render(node.res, depth + 1)]

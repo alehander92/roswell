@@ -37,7 +37,7 @@ proc render*(typ: Type, depth: int): string =
     of Generic:
       "Generic{$1, $2, $3}" % [typ.label, typ.genericArgs.mapIt($it).join(" "), $typ.complex]
     of Overload:
-      "Overload{$1, $2}" % [typ.label, typ.overloads.mapIt($it).join("  ")]
+      "Overload{$1, $2}" % [if typ.label != nil: typ.label else: "", typ.overloads.mapIt($it).join("  ")]
     of Default:
       "Default" 
     of Record:
@@ -46,7 +46,7 @@ proc render*(typ: Type, depth: int): string =
 
 proc `$`*(typ: Type): string =
   result = render(typ, 0)
-
+  
 proc functionType*(args: seq[Type], genericArgs: seq[string] = @[]): Type =
   if len(genericArgs) == 0:
     result = Type(kind: Complex, label: Function, args: args)

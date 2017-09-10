@@ -4,8 +4,8 @@ import strutils, sequtils, tables
 proc emitPredefined(node: Predefined, module: var AsmModule): TextItem
 proc emitFunction(node: TripletFunction, module: var AsmModule): TextItem
 
-proc emit*(a: TripletModule): AsmModule =
-  var module = AsmModule(file: a.file, data: @[], functions: @[], labels: 0, env: env.newEnv[Operand](nil))
+proc emit*(a: TripletModule, debug: bool=false): AsmModule =
+  var module = AsmModule(file: a.file, data: @[], functions: @[], labels: 0, debug: debug, env: env.newEnv[Operand](nil))
   module.data.add(DataItem(kind: DataString, b: "\\n", label: "nl"))
   module.data.add(DataItem(kind: DataInt, a: 10, label: "i"))
   for node in a.predefined:
@@ -255,7 +255,7 @@ proc emitValue(triplet: Triplet, module: var AsmModule, function: var TextItem) 
     else:
       emitAtom(triplet.value, module, function, triplet.destination)
   of TJump:
-    em Opcode(kind: JMP, label: triplet.location)
+    em Opcode(kind: JMP, label: triplet.jLocation)
   of TIf:
     case triplet.condition:
     of OpEq:

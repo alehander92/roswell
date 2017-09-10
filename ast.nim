@@ -1,5 +1,5 @@
 import core, types, type_env
-import strutils, sequtils
+import strutils, sequtils, tables
 
 type
   DebugFlag* = distinct bool
@@ -9,6 +9,7 @@ type
   NodeKind* = enum AProgram, AGroup, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref
 
   Node* = ref object of RootObj
+    location*: Location
     case kind*: NodeKind:
     of AProgram:
       name*:          string
@@ -66,6 +67,11 @@ type
       derefedObject*: Node
     tag*:             Type
 
+  Location* = object
+    line*:    int
+    column*:  int
+    fileId*:  int
+
   NodeModule = enum MLib, MNative, MNim
 
 
@@ -88,6 +94,11 @@ let OPERATOR_SYMBOLS*: array[Operator, string] = [
 
 
 proc `$`*(node: Node): string
+
+var names*: Table[int, string] = initTable[int, string]()
+
+proc `$`*(location: Location): string =
+  result = "$1:$2($3)" % [$location.line, $location.column, names[location.fileId]]
 
 proc render*(node: Node, depth: int): string =
   var value: string

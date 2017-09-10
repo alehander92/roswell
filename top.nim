@@ -3,22 +3,33 @@ import tables
 
 var TOP_ENV* = type_env.newEnv(nil)
 
-var intType* =                      Type(kind: Simple, label: "Int")
-var stringType* =                   Type(kind: Simple, label: "String")
-var boolType* =                     Type(kind: Simple, label: "Bool")
-var voidType* =                     Type(kind: Simple, label: "Void")
-var charType* =                     Type(kind: Simple, label: "Char")
-var floatType* =                    Type(kind: Simple, label: "Float")
-var nilType* =                      Type(kind: Simple, label: "Nil")
-var errorType* =                    Type(kind: Simple, label: "Error")
+var intType* =                      simpleType("Int")
+var stringType* =                   simpleType("String")
+var boolType* =                     simpleType("Bool")
+var voidType* =                     simpleType("Void")
+var charType* =                     simpleType("Char")
+var floatType* =                    simpleType("Float")
+var nilType* =                      simpleType("Nil")
+var errorType* =                    simpleType("Error")
+var defaultType* =                  Type(kind: Default)
 
 var mathIntInt* =                   functionType(@[intType, intType, intType])
 var logicBoolBool* =                functionType(@[boolType, boolType, boolType])
 var compareIntIntBool* =            functionType(@[intType, intType, boolType])
 
-TOP_ENV.define("display",           functionType(@[stringType, voidType]), predefined=core.PDisplayDefinition)
-TOP_ENV.define("display",           functionType(@[intType, voidType]), predefined=core.PDisplayIntDefinition)
+# later in lib
+var mapType* =                      functionType(
+  @[complexType("Array", simpleType("T")),
+    functionType(@[simpleType("T"), simpleType("U")]),
+    complexType("Array", simpleType("U"))],
+  @["T", "U"])
+
+TOP_ENV.define("display",           functionType(@[defaultType, voidType]), predefined=core.PDisplayDefinition)
+TOP_ENV.define("text",              functionType(@[stringType, stringType]), predefined=core.PTextDefinition)
+TOP_ENV.define("text",              functionType(@[intType, stringType]), predefined=core.PTextIntDefinition)
+TOP_ENV.define("text",              functionType(@[defaultType, stringType]), predefined=core.PTextDefaultDefinition)
 TOP_ENV.define("exit",              functionType(@[intType, voidType]), predefined=core.PExitDefinition)
+TOP_ENV.define("map",               mapType)
 
 TOP_ENV.define("+",                 mathIntInt)
 TOP_ENV.define("-",                 mathIntInt)
@@ -30,4 +41,4 @@ TOP_ENV.define("==",                compareIntIntBool)
 TOP_ENV.define("%",                 mathIntInt)
 
 TOP_ENV.define("RuntimeError",      errorType)
-
+TOP_ENV.define("ExitError",         errorType)

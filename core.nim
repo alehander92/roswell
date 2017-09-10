@@ -4,7 +4,7 @@ type
     f*:         PredefinedLabel
     called*:    bool
 
-  PredefinedLabel* = enum PDisplayDefinition, PDisplayIntDefinition, PExitDefinition, PStringDefinition, PNil
+  PredefinedLabel* = enum PDisplayDefinition, PTextDefinition, PTextIntDefinition, PTextDefaultDefinition, PExitDefinition, PStringDefinition, PNil
 
 let asmDefinitions*: array[PredefinedLabel, string] = [
   """
@@ -22,8 +22,19 @@ INT     $0x80
   """, # PDisplayDefinition
 
   """
-MOVL  -16(%rbp),           %edx
-  """, # PDisplayIntDefinition
+MOVQ    -8(%rbp),       %rax
+RET
+  """, # PTextDefinition
+
+  """
+MOVL    -4(%rbp),       %eax
+# do some stuff
+CALL    sprintf
+  """, # PTextIntDefinition
+
+  """
+MOVL    $empty,         %eax
+  """, # PDefaultDefinition
 
   """
 MOVL   $1,                 %eax
@@ -43,10 +54,24 @@ void display(RoswellString* s) {
   """, # PDisplayDefinition
 
   """
-void display(int s) {
-  printf("%d\n", s);
+RoswellString* text_0_string(RoswellString* s) {
+  return s;
 }
-  """, # PDisplayIntDefinition
+  """, # PTextDefinition
+
+  """
+RoswellString* text_1_int(int s) {
+  char t[14];
+  sprintf(t, "%d", s);
+  return roswell_string(t, strlen(t));
+}
+  """, # PTextIntDefinition
+
+  """
+RoswellString* text_2_default(int s) {
+  return roswell_string("", 0);
+}
+  """, # PTextDefaultDefinition
 
   """
 exit(0);
@@ -73,21 +98,28 @@ RoswellString* roswell_string(char* c, int size) {
 
 let cilDefinitions*: array[PredefinedLabel, string] = [
   "", # PDisplayDefinition
-  "", # PDisplayIntDefinition
+  "", # PTextDefinition
+  "", # PTextIntDefinition
+  "", # PTextDefaultDefinition
   "", # PExitDefinition
   "", # PStringDefinition
   ""] # PNil
 
 let jvmDefinitions*: array[PredefinedLabel, string] = [
   "", # PDisplayDefinition
-  "", # PDisplayIntDefinition
+  "", # PTextDefinition
+  "", # PTextIntDefinition
+  "", # PTextDefaultDefinition
   "", # PExitDefinition
   "", # PStringDefinition
   ""] # PNil
 
 let llvmDefinitions*: array[PredefinedLabel, string] = [
   "", # PDisplayDefinition
-  "", # PDisplayIntDefinition
+  "", # PTextDefinition
+  "", # PTextIntDefinition
+  "", # PTextDefaultDefinition
   "", # PExitDefinition
   "", # PStringDefinition
   ""] # PNil
+

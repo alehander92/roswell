@@ -6,6 +6,7 @@ type
 
   Triplet* = ref object
     destination*: TripletAtom
+    location*: Location
     case kind*: TripletKind
     of TBinary:
       op*:          Operator
@@ -18,7 +19,7 @@ type
       value*:       TripletAtom
       isDeref*:     bool
     of TJump:
-      location*:    string
+      jLocation*:    string
     of TIf:
       conditionLabel*: TripletAtom
       condition*:   Operator
@@ -71,12 +72,13 @@ type
     typ*:         Type
 
   TripletModule* = object
-    file*:    string
-    functions*: seq[TripletFunction]
-    env*:     Env[int]
-    temps*:   int
-    labels*:  int
+    file*:       string
+    functions*:  seq[TripletFunction]
+    env*:        Env[int]
+    temps*:      int
+    labels*:     int
     predefined*: seq[Predefined]
+    debug*:      bool
 
 proc render*(t: TripletAtom, depth: int): string =
   result = repeat("  ", depth)
@@ -97,7 +99,7 @@ proc render*(t: TripletAtom, depth: int): string =
       result.add($t.node)
   if t.kind != ULabel or t.label != "_":
     result.add(" %")
-    result.add(simpleType(t.typ))
+    result.add(simple(t.typ))
 
 proc `$`*(t: TripletAtom): string
 
@@ -127,7 +129,7 @@ proc render*(triplet: Triplet, depth: int): string =
     equal = true
   of TJump:
     first = "JUMP"
-    second = $triplet.location
+    second = $triplet.jLocation
     equal = false
   of TIf:
     first = "IF"
@@ -193,10 +195,9 @@ proc render*(triplet: Triplet, depth: int): string =
   else:
     result.add("  ")
   result.add(leftAlign(second, 20, ' '))
-  if len(third) > 0:
-    result.add(leftAlign(third, 10, ' '))
-  if len(fourth) > 0:
-    result.add(leftAlign(fourth, 10,  ' '))
+  result.add(leftAlign(third, 10, ' '))
+  result.add(leftAlign(fourth, 10,  ' '))
+  result.add(leftAlign($triplet.location, 10, ' '))
 
 proc render*(function: TripletFunction, depth: int): string =
   result = repeat("  ", depth)

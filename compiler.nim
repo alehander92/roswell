@@ -1,22 +1,22 @@
-import backend, parser, typechecker, "converter", aasm, triplet, terminal, emitter, c_emitter, optimizers/assembler, optimizers/c, optimizers/math, "optimizers/array", top, binary
+import backend, parser, typechecker, "converter", aasm, triplet, terminal, emitter, c_emitter, optimizers/assembler, optimizers/c, optimizers/math, "optimizers/array", top, binary, values, evaluator
 import strutils, osproc
 
-proc backendIndependentCompile*(source: string, name: string): TripletModule =
-  var nonOptimized = convert(typecheck(parse(source, name), TOP_ENV))
+proc backendIndependentCompile*(source: string, name: string, debug: bool=false): TripletModule =
+  var nonOptimized = convert(typecheck(parse(source, name, id=0), TOP_ENV), debug=debug)
   mathOptimize(nonOptimized)
   arrayOptimize(nonOptimized)
   var optimized = nonOptimized
   styledWriteLine(stdout, fgMagenta, "OPTIMIZE:\n", $optimized, resetStyle)
   result = optimized
 
-proc compileToBackend*(module: TripletModule, backend: Backend): string =
+proc compileToBackend*(module: TripletModule, backend: Backend, debug: bool=false): string =
   case backend:
   of BackendAsm:
-    var res = emitter.emit(module)
+    var res = emitter.emit(module, debug=debug)
     asmOptimize(res)
     return toBinary(res)
   of BackendC:
-    return cText(c_emitter.emit(module))
+    return cText(c_emitter.emit(module, debug=debug))
   of BackendCIL:
     return ""
   of BackendJVM:
@@ -24,14 +24,14 @@ proc compileToBackend*(module: TripletModule, backend: Backend): string =
   of BackendLLVM:
     return ""
 
-proc compile*(source: string, name: string, backend: Backend): string =
-  var module = backendIndependentCompile(source, name)
-  result = compileToBackend(module, backend)
+proc compile*(source: string, name: string, backend: Backend, debug: bool): string =
+  var module = backendIndependentCompile(source, name, debug=debug)
+  result = compileToBackend(module, backend, debug=debug)
 
 let EXTENSIONS: array[Backend, string] = ["s", "c", "il", "class", "llvm"]
 
-proc compileFile*(code: string, binary: string, backend: Backend) =
-  var program = compile(readFile(code), "$1.s" % binary, backend)
+proc compileFile*(code: string, binary: string, backend: Backend, debug: bool) =
+  var program = compile(readFile(code), binary, backend, debug)
   writeFile("$1.$2" % [binary, EXTENSIONS[backend]], program)
   if backend == BackendAsm:
     var (outp, errC) = execCmdEx("as -g -o $1.out $1.s" % binary)
@@ -48,3 +48,9 @@ proc compileFile*(code: string, binary: string, backend: Backend) =
     if errC == 0:
       echo "compiled to $1" % binary
 
+proc eval*(source: string, name: string = "(script)"): RValue =
+  var module = backendIndependentCompile(source, name, debug=true)
+  result = eval(module)
+
+proc evalFile*(code: string) =
+  echo eval(readFile(code))

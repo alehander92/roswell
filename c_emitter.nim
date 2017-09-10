@@ -3,6 +3,7 @@ import tables, strutils, sequtils
 
 type
   CModule* = ref object
+    debug*:     bool
     file*:      string
     functions*: seq[CFunction]
     env*:       Env[Type]
@@ -21,8 +22,8 @@ type
 
 proc emitFunction(node: TripletFunction, module: var CModule): CFunction
 
-proc emit*(a: TripletModule): CModule =
-  var module = CModule(file: a.file, functions: @[], labels: 0, env: newEnv[Type](nil), imports: @[], a: @[])
+proc emit*(a: TripletModule, debug: bool): CModule =
+  var module = CModule(file: a.file, functions: @[], labels: 0, env: newEnv[Type](nil), imports: @[], debug: debug, a: @[])
   for node in a.predefined:
     if node.called:
       module.functions.add(CFunction(label: $node.f, header: "", raw: core.cDefinitions[node.f], locals: ""))
@@ -31,6 +32,13 @@ proc emit*(a: TripletModule): CModule =
   module.a.add(core.cDefinitions[core.PStringDefinition])
   module.imports = module.imports.concat(@["stdio.h", "stdlib.h"])
   return module
+
+proc format(s: string, debug: bool=false): string =
+  if debug:
+    result = s.filterIt(it notin NewLines).join("")
+  else:
+    result = s
+  result = result.replace("$N", "\n")
 
 template cem(s: untyped): untyped =
   function.raw.add(`s`)
@@ -53,7 +61,7 @@ proc cType(typ: Type): string =
     else: typ.label
   of Complex:
     case typ.label:
-      of "Array": "$1*" % cType(typ.args[0])
+      of "Array", "Pointer": "$1*" % cType(typ.args[0])
       else: typ.label
   else:
     typ.label
@@ -76,6 +84,9 @@ proc cHead(node: TripletFunction, module: var CModule, function: var CFunction):
     node.label,
     (0..(node.paramCount - 1)).mapIt(cParam(params[it], types[it])).join(", ")
   ]
+  if module.debug:
+    result = "$$N#line $1 \"$2\"$$N$3" % [$(node.triplets[0].location.line - 1), names[node.triplets[0].location.fileId], result]
+
 
 let C_OPERATORS: array[Operator, string] = [
   "&&",   # OpAnd
@@ -121,6 +132,8 @@ proc emitAtom(atom: TripletAtom, module: var CModule, function: var CFunction, d
 
 proc emitValue(node: Triplet, module: var CModule, function: var CFunction, depth: int): (bool, bool) =
   var offset = repeat("  ", depth)
+  if module.debug:
+    cem "$$N#line $1 \"$2\"$$N" % [$node.location.line, names[node.location.fileId]]
   cem offset
   result = (false, false)
   case node.kind:
@@ -134,11 +147,13 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     ema node.destination, 0
     cem " = $1" % C_OPERATORS[node.unaryOp]
   of TSave:
+    if node.isDeref:
+      cem "*"
     ema node.destination, 0
     cem " = "
     ema node.value, 0
   of TJump:
-    cem "goto $1" % node.location
+    cem "goto $1" % node.jLocation
   of TIf:
     cem "if ("
     ema node.conditionLabel, 0
@@ -189,6 +204,18 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     cem "["
     ema node.sIndex, 0
     cem "]"
+  of TAddr:
+    ema node.destination, 0
+    cem " = "
+    cem "(&"
+    ema node.addressObject, 0
+    cem ")"
+  of TDeref:
+    ema node.destination, 0
+    cem " = "
+    cem "(*"
+    ema node.derefedObject, 0
+    cem ")"
   else:
     cem ""
 
@@ -228,6 +255,5 @@ proc cText*(module: CModule): string =
   result.add(module.imports.mapIt(cImport(it)).join("\n"))
   result.add("\n\n")
   result.add(module.a.join("\n"))
-  result.add(module.functions.mapIt(cDef(it)).join("\n\n"))
-
+  result.add(format(module.functions.mapIt(cDef(it)).join("\n\n"), debug=module.debug))
 

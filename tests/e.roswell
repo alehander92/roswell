@@ -6,4 +6,3 @@ def name(a):
 def main:
   name(2)
 
-

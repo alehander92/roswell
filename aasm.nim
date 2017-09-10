@@ -10,6 +10,7 @@ type
 
   AsmModule* = ref object
     file*:      string
+    debug*:     bool
     data*:      seq[DataItem]
     functions*: seq[TextItem]
     env*:       Env[Operand]

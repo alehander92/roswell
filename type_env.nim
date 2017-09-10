@@ -7,10 +7,11 @@ type
     parent*:     TypeEnv
     top*:        TypeEnv
     predefined*: seq[Predefined]
+    function*:   Type
 
 proc getOrDefault*(t: TypeEnv, title: string): Type
 
-proc matchOrDefault*(t: var TypeEnv, title: string, args: seq[Type]): Type
+proc matchOrDefault*(t: var TypeEnv, title: string, args: seq[Type]): (bool, int, Type, Table[string, Type])
 
 proc `[]`*(t: TypeEnv, title: string): Type =
   result = getOrDefault(t, title)
@@ -30,24 +31,34 @@ proc define*(t: var TypeEnv, title: string, typ: Type, predefined: PredefinedLab
   if predefined != PNil:
     t.top.predefined.add(Predefined(function: title, f: predefined, called: false))
 
-proc match*(t: var TypeEnv, title: string, args: seq[Type]): Type =
+proc match*(t: var TypeEnv, title: string, args: seq[Type]): (bool, int, Type, Table[string, Type]) =
   result = matchOrDefault(t, title, args)
-  if result == nil:
+  if result[2] == nil:
     raise newException(RoswellError, "undefined $1 $2" % [title, args.mapIt($it).join(",")])
 
-proc matchOrDefault*(t: var TypeEnv, title: string, args: seq[Type]): Type =
+proc matchOrDefault*(t: var TypeEnv, title: string, args: seq[Type]): (bool, int, Type, Table[string, Type]) =
   var top = t.top
   if top.types.hasKey(title):
     if top.types[title].kind == Overload:
-      for candidate in top.types[title].overloads:
-        if candidate.kind == Complex and candidate.label == "Function":
-          if allZip(args, candidate.args[0.. < ^1]):
+      for z, candidate in top.types[title].overloads:
+        if candidate.label == "Function":
+          var genericArgs: seq[string] = @[]
+          var callArgs: seq[Type] = @[]
+          if candidate.kind == Complex:
+            genericArgs = @[]
+            callArgs = candidate.args[0.. < ^1]
+          else:
+            assert candidate.kind == Generic and candidate.complex.kind == Complex
+            genericArgs = candidate.genericArgs
+            callArgs = candidate.complex.args[0.. < ^1]
+          var map = initTable[string, Type]()
+          if unifyAll(args, callArgs, genericArgs, map):
             for predefined in top.predefined.mitems:
               if predefined.function == title:
                 predefined.called = true
                 break
-            return candidate
-  return nil
+            return (len(top.types[title].overloads) == 1, z, candidate, map)
+  return (false, 0, nil, initTable[string, Type]())
 
 proc getOrDefault*(t: TypeEnv, title: string): Type =
   var last = t

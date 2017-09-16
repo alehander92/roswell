@@ -18,6 +18,8 @@ proc eval*(atom: TripletAtom, env: var Env[RValue]): RValue =
       result = RValue(kind: RFloat, f: atom.node.f)
     of AString:
       result = RValue(kind: RString, s: atom.node.s)
+    of ABool:
+      result = RValue(kind: RBool, b: atom.node.b)
     else:
       result = nil
   of ULabel:
@@ -110,8 +112,8 @@ proc eval*(triplet: Triplet, env: var Env[RValue], next: var string = "", functi
     evalAtom sIndex
     evalAtom sValue
     assert sIndexable.kind == RArray and sIndex.kind == RInt
-    if sIndexable.length + 1 < sIndex.i:
-      sIndexable.ar = concat(sIndexable.ar, repeat(R_NONE, sIndex.i - sIndexable.length))
+    if sIndexable.length - 1 < sIndex.i:
+      sIndexable.ar = concat(sIndexable.ar, repeat(R_NONE, sIndex.i + 1 - sIndexable.length))
       sIndexable.length = sIndex.i + 1
     sIndexable.ar[sIndex.i] = sValue
     result = sValue

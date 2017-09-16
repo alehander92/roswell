@@ -15,13 +15,18 @@ proc parseIf(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseForEach(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseRaw(buffer: string, s: string, depth: int = 0): (bool, string, Node)
 proc parseStatement(buffer: string, depth: int = 0): (bool, string, Node)
+proc parseTypeDefinition(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseExpression(buffer: string, depth: int = 0): (bool, string, Node)
+proc parseNl(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseBasic(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseHelper(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseWs(buffer: string, depth: int = 0): (bool, string, Node)
-proc parseNl(buffer: string, depth: int = 0): (bool, string, Node)
+proc parseIField(buffer: string, depth: int = 0): (bool, string, Node)
+proc parseRecord(buffer: string, depth: int = 0): (bool, string, Node)
+proc parseEnum(buffer: string, depth: int = 0): (bool, string, Node)    
 proc parseType(buffer: string, depth: int = 0, application: bool = false): (bool, string, Node)
 proc parseLabel(buffer: string, depth: int = 0): (bool, string, Node)
+proc parseTitle(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseIndent(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseDedent(buffer: string, depth: int = 0): (bool, string, Node)
 proc parseCallArgs(buffer: string, depth: int = 0): (bool, string, Node)
@@ -55,7 +60,7 @@ template raw(a: untyped): untyped =
   (success, left, z) = parseRaw(left, `a`, depth + 1)
 
 template testLog(a: untyped): untyped =
-  when test: echo repeat("  ", depth) & "parse" & `a` & ":" & buffer
+  when test: echo repeat("  ", depth) & "parse" & `a` & ":" & (if len(buffer) > 16: buffer[0..<16] else: buffer)
 
 template loc: untyped =
   loca(buffer)
@@ -103,7 +108,7 @@ proc preprocess(source: string, id: int): seq[Location] =
       inc z
 
 proc parse*(source: string, name: string, id: int = 0): Node =
-  result = Node(kind: AProgram, name: name, functions: @[])
+  result = Node(kind: AProgram, name: name, functions: @[], definitions: @[])
   decl
   left = a(source)
   contexts[id] = Location(line: 1, column: 1, fileId: id)
@@ -112,6 +117,13 @@ proc parse*(source: string, name: string, id: int = 0): Node =
   locations[id] = preprocess(left, id)
   fileId = id
   var success2 = false
+  while success:
+    (success, left, node) = parseTypeDefinition(left, 0)
+    if success:
+      result.definitions.add(node)
+      (success2, left, z) = parseNl(left, 0)
+  success = true
+  success2 = false
   while success:
     (success, left, node) = parseFunction(left, 0)
     if success:
@@ -427,6 +439,87 @@ proc parseStatement(buffer: string, depth: int = 0): (bool, string, Node) =
       return (true, left, node)
   return (false, buffer, nil)
 
+var DEFINITION_FUNCTIONS = [parseRecord, parseEnum]
+
+proc parseTypeDefinition(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("TypeDefinition")
+  decl
+  left = buffer
+  for function in DEFINITION_FUNCTIONS:
+    (success, left, node) = function(left, depth + 1)
+    if success:
+      return (true, left, node)
+  return (false, buffer, nil)
+
+proc parseField(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("Field")
+  var f = Node(kind: AField, location: loc)
+  decl
+  (success, left, node) = parseLabel(buffer, depth + 1)
+  if success and node.kind == ALabel:
+    f.fieldLabel = node.s
+    left = skip(left)
+    raw("is")
+    if success:
+      left = skip(left)
+      (success, left, node) = parseType(left, depth + 1)
+      if success and node.kind == AType:
+        f.fieldType = node.typ
+        return (true, left, f)
+  return (false, buffer, nil)
+
+proc parseRecord(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("Record")
+  var f = Node(kind: ARecord, fields: @[], location: loc)
+  decl
+  left = buffer
+  raw("record")
+  if success:
+    left = skip(left)
+    (success, left, node) = parseTitle(left, depth + 1)
+    if success and node.kind == ALabel:
+      f.rLabel = node.s
+      raw(":")
+      if success:
+        (success, left, node) = parseIndent(left, depth + 1)
+        if success:
+          var success2 = false
+          while success:
+            (success, left, node) = parseField(left, depth + 1)
+            if success:
+              f.fields.add(node)
+              (success2, left, z) = parseNl(left, depth + 1)
+          (success, left, node) = parseDedent(left, depth + 1)
+          if success:
+            return (true, left, f)
+  return (false, buffer, nil)
+
+proc parseEnum(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("Enum")
+  var f = Node(kind: AEnum, variants: @[], location: loc)
+  decl
+  left = buffer
+  raw("enum")
+  if success:
+    left = skip(left)
+    (success, left, node) = parseTitle(left, depth + 1)
+    if success and node.kind == ALabel:
+      f.eLabel = node.s
+      raw(":")
+      if success:
+        left = skip(left)
+        var success2 = false
+        while success:
+          raw("~")
+          if success:
+            (success, left, node) = parseLabel(left, depth + 1)
+            if success and node.kind == ALabel:
+              f.variants.add("~$1" % node.s)
+        if len(f.variants) > 0:
+          return (true, left, f)
+  return (false, buffer, nil)
+
+
 proc parseDeref(buffer: string, depth: int): (bool, string, Node) =
   testLog("Deref")
   var f = Node(kind: ADeref, location: loc)
@@ -458,7 +551,7 @@ proc parseExpression(buffer: string, depth: int = 0): (bool, string, Node) =
         resultNode = basicNode
       return (true, left, resultNode)
 
-  (success, left, node) = parseRaw(left, "(", depth + 1)
+  (success, left, node) = parseRaw(buffer, "(", depth + 1)
   if success:
     left = skip(left)
     (success, left, expressionNode) = parseExpression(left, depth + 1)
@@ -468,7 +561,41 @@ proc parseExpression(buffer: string, depth: int = 0): (bool, string, Node) =
       if success:
         return (true, left, expressionNode)
 
+  (success, left, node) = parseTitle(buffer, depth + 1)
+  if success and node.kind == ALabel:
+    var f = Node(kind: AInstance, iFields: @[], location: loc)
+    f.iLabel = node.s
+    left = skip(left)
+    raw("(")
+    if success:
+    
+      while success:
+        (success, left, node) = parseIField(left, depth + 1)
+        if success:
+          f.iFields.add(node)
+          left = skip(left)
+      raw(")")
+      if success:
+        return (true, left, f)
   return (false, buffer, nil)
+
+proc parseIField(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("IField")
+  var f = Node(kind: AIField, location: loc)
+  decl
+  (success, left, node) = parseLabel(buffer, depth + 1)
+  if success and node.kind == ALabel:
+    f.iFieldLabel = node.s
+    left = skip(left)
+    raw("=")
+    if success:
+      left = skip(left)
+      (success, left, node) = parseExpression(left, depth + 1)
+      if success:
+        f.iFieldValue = node
+        return (true, left, f)
+  return (false, buffer, nil)
+
 
 proc parseMember(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Member")
@@ -673,16 +800,37 @@ proc parseType(buffer: string, depth: int = 0, application: bool = false): (bool
     return (false, buffer, nil)
 
   if application:
-    f.typ = Type(kind: Complex, label: Function, args: @[])
+    if left[0] == '<':
+      f.typ = Type(kind: Generic, genericArgs: @[], instantiations: @[], label: Function)
+      left = left[1..^1]
+      while true:
+        echo ":", left[0..<20]
+        if len(left) > 0 and left[0] == '>':
+          left = left[1..^1]
+          left = skip(left)
+          break
+        (success, left, node) = parseTitle(left, depth + 1)
+        if success and node.kind == ALabel:
+          f.typ.genericArgs.add(node.s)
+          left = skip(left)
+        else:
+          return (false, buffer, nil)
+    else:
+      f.typ = Type(kind: Complex, label: Function, args: @[])
+    var typ = Type(kind: Complex, label: Function, args: @[])
     while true:
       (success, left, node) = parseType(left, depth + 1)
       if success and node.kind == AType:
-        f.typ.args.add(node.typ)
+        typ.args.add(node.typ)
         left = skip(left)
         if len(left) >= 2 and left[0..1] == "->":
           left = left[2..^1]
         left = skip(left)
       elif not success:
+        if f.typ.kind == Generic:
+          f.typ.complex = typ
+        else:
+          f.typ = typ
         return (true, left, f)
     return (false, buffer, nil)
   elif left[0] == '[':
@@ -699,6 +847,11 @@ proc parseType(buffer: string, depth: int = 0, application: bool = false): (bool
       if success and intNode.kind == AInt and len(left) > 0 and left[0] == ']':
         f.typ = Type(kind: Complex, label: "Array", args: @[node.typ, Type(kind: Simple, label: $intNode.value)])
         return (true, left[1..^1], f)
+      else:
+        (success, left, intNode) = parseTitle(left, depth + 1)
+        if success and intNode.kind == ALabel and len(left) > 0 and left[0] == ']':
+          f.typ = Type(kind: Complex, label: "Array", args: @[node.typ, Type(kind: Simple, label: intNode.s)])
+          return (true, left[1..^1], f)          
   elif len(left) > 1 and left[0] == '(':
     (success, left, node) = parseType(left[1..^1], depth + 1, application=true)
     if success and node.kind == AType:
@@ -707,24 +860,37 @@ proc parseType(buffer: string, depth: int = 0, application: bool = false): (bool
         f.typ = node.typ
         return (true, left, f)
   else:
-    (success, left, node) = parseLabel(left, depth + 1)
+    (success, left, node) = parseTitle(left, depth + 1)
     if success and node.kind == ALabel:
       f.typ = Type(kind: Simple, label: node.s)
       return (true, left, f)
   return (false, buffer, nil)
 
-proc parseLabel(buffer: string, depth: int = 0): (bool, string, Node) =
-  testLog("Label")
+proc parseLabelRaw(buffer: string, depth: int = 0, capital: bool = false): (bool, string, Node) =
+  testLog("LabelRaw")
   for a, b in buffer:
     if not b.isAlphaAscii():
       if a == 0:
         return (false, buffer, nil)
       else:
+        if a == 1:
+          if capital and not buffer[0].isUpperAscii():
+            return (false, buffer, nil)
+        if not capital and not buffer[0].isLowerAscii():
+          return (false, buffer, nil)
         return (true, buffer[a..^1], Node(kind: ALabel, s: $(buffer[0..<a]), location: loc))
   if len(buffer) == 0:
     return (false, buffer, nil)
   else:
     return (true, "", Node(kind: ALabel, s: $buffer, location: loc))
+
+proc parseLabel(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("Label")
+  result = parseLabelRaw(buffer, depth=depth)
+
+proc parseTitle(buffer: string, depth: int = 0): (bool, string, Node) =
+  testLog("Title")
+  result = parseLabelRaw(buffer, depth=depth, capital=true)
 
 proc parseIndent(buffer: string, depth: int = 0): (bool, string, Node) =
   testLog("Indent")

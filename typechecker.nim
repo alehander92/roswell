@@ -4,12 +4,10 @@ import strutils, sequtils, tables, terminal
 proc typecheckNode(node: Node, env: var TypeEnv): Node
 
 proc typecheck*(ast: Node, env: var TypeEnv): Node =
-  if ast.kind != AProgram:
-    raise newException(RoswellError, "undefined program")
+  assert ast.kind == AProgram
   # this way if b defined after a, a knows b
   for node in ast.functions:
-    if node.kind != AFunction:
-      raise newException(RoswellError, "undefined program")
+    assert node.kind == AFunction
     env.define(node.label, node.types)
   var value = typecheckNode(ast, env)
   styledWriteLine(stdout, fgBlue, "TYPECHECK\n", $value, resetStyle)
@@ -37,6 +35,24 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
   of AGroup:
     var newNodes: seq[Node] = node.nodes.mapIt(typecheckNode(it, env))
     return Node(kind: AGroup, nodes: newNodes, location: node.location)
+  of ARecord:
+    var newNode = node
+    newNode.tag = voidType
+    return newNode
+  of AEnum:
+    var newNode = node
+    newNode.tag = voidType
+    return newNode
+  of AField:
+    var newNode = node
+    newNode.tag = voidType
+    return newNode
+  of AInstance:
+    return Node(kind: AInstance, iLabel: node.iLabel, iFields: node.iFields, location: node.location)
+  of AIField:
+    var newNode = node
+    newNode.tag = voidType
+    return newNode
   of AInt:
     return Node(kind: AInt, value: node.value, tag: intType, location: node.location)
   of AFloat:
@@ -55,7 +71,8 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
     var newFunction: Node
     if node.function.kind == ALabel:
       (b, i, m, map) = match(env, node.function.s, tags)
-      s = mangle(node.function.s, b, i, m)
+      var typ = if m.kind == Complex: m else: mapGeneric(m, map)
+      s = mangle(node.function.s, b, i, typ)
       newFunction = Node(kind: ALabel, s: s, location: node.location)
     elif node.function.kind == AOperator:
       s = OPERATOR_SYMBOLS[node.function.op]
@@ -66,20 +83,23 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
     var ret: Type
     if m.kind == Complex and len(m.args) > 0:
       ret = m.args[^1]
-    elif m.kind == Generic and m.complex.kind == Complex and len(m.complex.args) > 0:
+    elif newFunction.kind == ALabel and m.kind == Generic and m.complex.kind == Complex and len(m.complex.args) > 0:
       ret = mapGeneric(m.complex.args[^1], map)
+      m.instantiations.add(Instantiation(map: map, label: newFunction.s, isGeneric: env.function.kind == Generic))
+      echo m.instantiations[^1]
     else:
       raise newException(RoswellError, "invalid call $1" % $m)
-    newFunction.tag = m
+    newFunction.tag = if m.kind == Complex: m else: mapGeneric(m, map)
     return Node(kind: ACall, function: newFunction, args: newArgs, tag: ret, location: node.location)
   of AFunction:
     var functionEnv = newEnv(env)
     functionEnv.function = node.types
-    if node.types.kind != Complex:
+    if node.types.kind != Complex and node.types.kind != Generic:
       raise newException(RoswellError, "invalid function")
     else:
+      var functionType = if node.types.kind == Generic: node.types.complex else: node.types
       for j, param in node.params:
-        functionEnv[param] = node.types.args[j]
+        functionEnv[param] = functionType.args[j]
       var newCode = typecheckNode(node.code, functionEnv)
       return Node(kind: AFunction, label: node.label, params: node.params, types: node.types, code: newCode, tag: voidType, location: node.location)
   of ALabel:
@@ -109,9 +129,11 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
   of AReturn:
     var newRet = typecheckNode(node.ret, env)
     var t = env.function
-    if t.kind != Complex or len(t.args) == 0:
+    if t.kind != Complex and t.kind != Generic or
+       t.kind == Complex and len(t.args) == 0 or
+       t.kind == Generic and len(t.complex.args) == 0:
       raise newException(RoswellError, "invalid function")
-    elif newRet.tag != t.args[^1]:
+    elif t.kind == Complex and newRet.tag != t.args[^1] or t.kind == Generic and newRet.tag != t.complex.args[^1]:
       raise newException(RoswellError, "return type expected: $1, not $2" % [$t.args[^1], $newRet.tag])
     return Node(kind: AReturn, ret: newRet, tag: voidType, location: node.location)
   of AIf:
@@ -191,7 +213,7 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
     if newIndex.kind == AInt:
       if newIndex.value < 0:
         raise newException(RoswellError, "negative index")
-      if newIndex.value >= parseInt(newIndexable.tag.args[1].label):
+      if newIndexable.tag.args[1].label.isDigit() and newIndex.value >= parseInt(newIndexable.tag.args[1].label):
         raise newException(RoswellError, "large index")
     var tag = newIndexable.tag.args[0]
     return Node(kind: AIndex, indexable: newIndexable, index: newIndex, tag: tag, location: node.location)

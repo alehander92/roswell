@@ -1,0 +1,8 @@
+record A:
+  b is Int
+  c is String
+
+def main:
+  var a = A(b=2 c='2')
+  display(a.c)
+

@@ -6,17 +6,33 @@ type
 
   Operator* = enum OpAnd, OpOr, OpEq, OpMod, OpAdd, OpSub, OpMul, OpDiv, OpNotEq, OpGt, OpGte, OpLt, OpLte, OpXor
 
-  NodeKind* = enum AProgram, AGroup, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AForEach, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref
+  NodeKind* = enum AProgram, AGroup, ARecord, AEnum, AField, AInstance, AIField, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AForEach, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref
 
   Node* = ref object of RootObj
     location*: Location
     case kind*: NodeKind:
     of AProgram:
       name*:          string
+      definitions*:   seq[Node]
       functions*:     seq[Node]
       predefined*:    seq[Predefined]
     of AGroup:
       nodes*:         seq[Node]
+    of ARecord:
+      rLabel*:        string
+      fields*:        seq[Node]
+    of AEnum:
+      eLabel*:        string
+      variants*:      seq[string]
+    of AField:
+      fieldLabel*:    string
+      fieldType*:     Type
+    of AInstance:
+      iLabel*:        string
+      iFields*:       seq[Node]
+    of AIField:
+      iFieldLabel*:   string
+      iFieldValue*:   Node
     of AInt:
       value*:         int
     of AFloat:
@@ -112,9 +128,19 @@ proc render*(node: Node, depth: int): string =
   else:
     value = case node.kind:
     of AProgram:
-      "AProgram($1):\n$2" % [$node.name, node.functions.mapIt(render(it, 1)).join("\n")]
+      "AProgram($1):\n$2\n$3" % [$node.name, node.definitions.mapIt(render(it, 1)).join("\n"), node.functions.mapIt(render(it, 1)).join("\n")]
     of AGroup:
       "AGroup:\n$1" % node.nodes.mapIt(render(it, depth + 1)).join("\n")
+    of ARecord:
+      "ARecord($1):\n$2" % [node.rLabel, node.fields.mapIt(render(it, 2)).join("\n")]
+    of AEnum:
+      "AEnum($1):\n$2" % [node.eLabel, node.variants.mapIt("    $2" % it).join("\n")]
+    of AField:
+      "AField($1$2)" % [node.fieldLabel, $node.fieldType]
+    of AInstance:
+      "AInstance($1):\n$2" % [node.iLabel, node.iFields.mapIt(render(it, depth + 1)).join("\n")]
+    of AIField:
+      "AIField($1 $2)" % [node.iFieldLabel, render(node.iFieldValue, 0)]
     of AInt:
       "AInt($1)" % $node.value
     of AFloat:
@@ -182,3 +208,52 @@ proc render*(node: Node, depth: int): string =
 
 proc `$`*(node: Node): string =
   result = render(node, 0)
+
+iterator mitems*(range: Node): var Node =
+  case range.kind:
+  of AProgram:
+    for f in range.functions.mitems: yield f
+  of AGroup:
+    for n in range.nodes.mitems: yield n
+  of ARecord:
+    for f in range.fields.mitems: yield f
+  of AInstance:
+    for i in range.iFields.mitems: yield i
+  of AIField:
+    yield range.iFieldValue
+  of ACall:
+    yield range.function
+    for a in range.args.mitems: yield a
+  of AFunction:
+    yield range.code
+  of AArray:
+    for e in range.elements.mitems: yield e
+  of AReturn:
+    yield range.ret
+  of AIf:
+    yield range.condition
+    yield range.success
+    if range.fail != nil:
+      yield range.fail
+  of AForEach:
+    yield range.forEachSeq
+    yield range.forEachBlock
+  of AAssignment:
+    yield range.res
+  of ADefinition:
+    yield range.definition
+  of AMember:
+    yield range.receiver
+  of AIndex:
+    yield range.indexable
+    yield range.index
+  of AIndexAssignment:
+    yield range.aIndex
+    yield range.aValue
+  of APointer:
+    yield range.targetObject
+  of ADeref:
+    yield range.derefedObject
+  else:
+    discard
+

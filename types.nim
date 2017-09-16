@@ -1,7 +1,7 @@
 import strutils, sequtils, tables
 
 type
-  TypeKind* = enum Simple, Complex, Generic, Overload, Default, Record
+  TypeKind* = enum Simple, Complex, Generic, Overload, Default, Record, Enum, Data
 
   Type* = ref object
     label*: string
@@ -12,17 +12,30 @@ type
     of Generic:
       genericArgs*: seq[string]
       complex*: Type
-      instantiations*: seq[Type]
+      instantiations*: seq[Instantiation]
     of Overload:
       overloads*: seq[Type]
     of Default: discard # for display/text: if no other types are matched, this works
     of Record:
       fields*: Table[string, Type]
       positions*: Table[string, int]
+    of Enum:
+      variants*: seq[string]
+    of Data:
+      dataKind*: Type
+      branches*: seq[seq[Type]]
+
+  Instantiation* = object
+    label*:     string
+    map*:       Table[string, Type]
+    isGeneric*: bool
 
 const Function* = "Function"
 
 proc `$`*(typ: Type): string
+
+# top unify
+proc `==`*(typ: Type, b: Type): bool
 
 proc render*(typ: Type, depth: int): string =
   var value = ""
@@ -42,6 +55,10 @@ proc render*(typ: Type, depth: int): string =
       "Default" 
     of Record:
       "Record{$1}" % typ.label
+    of Enum:
+      "Enum{$1}" % typ.label
+    of Data:
+      "Data{$1}" % typ.label
   result = repeat("  ", depth) & value
 
 proc `$`*(typ: Type): string =
@@ -65,7 +82,7 @@ proc allZip*(a: seq[string], b: seq[string]): bool
 
 proc isGeneric*(typ: Type, genericArgs: seq[string]): bool
 
-proc mapGeneric*(typ: Type, map: Table[string, Type]): Type
+proc mapGeneric*(typ: Type, map: Table[string, Type], simple: bool = false): Type
 
 proc unify(a: Type, b: Type, genericArgs: seq[string], map: var Table[string, Type]): bool =
   if cast[pointer](a) == nil:
@@ -81,7 +98,8 @@ proc unify(a: Type, b: Type, genericArgs: seq[string], map: var Table[string, Ty
     of Simple:
       if isGeneric(b, genericArgs):
         if map.hasKey(b.label):
-          return a == map[b.label]
+          var c = map[b.label]
+          return a == c
         else:
           map[b.label] = a
           return true
@@ -100,7 +118,12 @@ proc unify(a: Type, b: Type, genericArgs: seq[string], map: var Table[string, Ty
     of Record:
       if a.kind != Record: return false
       return true
-
+    of Enum:
+      if a.kind != Enum: return false
+      return true
+    of Data:
+      if a.kind != Data: return false
+      return true
 
 proc allZip*(a: seq[string], b: seq[string]): bool =
   if len(a) != len(b):
@@ -144,6 +167,10 @@ proc `==`*(typ: Type, b: Type): bool =
       return true
     of Record:
       return true
+    of Enum:
+      return true
+    of Data:
+      return true
 
 proc simple*(typ: Type): string =
   if typ == nil:
@@ -158,6 +185,10 @@ proc simple*(typ: Type): string =
   of Default:
     result = "Default"
   of Record:
+    result = typ.label
+  of Enum:
+    result = typ.label
+  of Data:
     result = typ.label
   else:
     result = ""
@@ -176,8 +207,15 @@ proc isGeneric*(typ: Type, genericArgs: seq[string]): bool =
     return false
   of Record:
     return false
+  of Enum:
+    return false
+  of Data:
+    for t in typ.branches:
+      if t.anyIt(isGeneric(it, genericArgs)):
+        return true
+    return false
 
-proc mapGeneric*(typ: Type, map: Table[string, Type]): Type =
+proc mapGeneric*(typ: Type, map: Table[string, Type], simple: bool = false): Type =
   case typ.kind:
   of Simple:
     if map.hasKey(typ.label):
@@ -187,7 +225,10 @@ proc mapGeneric*(typ: Type, map: Table[string, Type]): Type =
   of Complex:
     return Type(kind: Complex, label: typ.label, args: typ.args.mapIt(mapGeneric(it, map)))
   of Generic:
-    return Type(kind: Generic, label: typ.label, genericArgs: typ.genericArgs, complex: mapGeneric(typ.complex, map))
+    if simple:
+        return mapGeneric(typ.complex, map)
+    else:
+      return Type(kind: Generic, label: typ.label, genericArgs: typ.genericArgs, complex: mapGeneric(typ.complex, map))
   of Overload:
     return Type(kind: Overload, label: typ.label, overloads: typ.overloads.mapIt(mapGeneric(it, map)))
   of Default:
@@ -197,4 +238,20 @@ proc mapGeneric*(typ: Type, map: Table[string, Type]): Type =
     for label, field in typ.fields:
       record[label] = mapGeneric(field, map)
     return Type(kind: Record, label: typ.label, fields: record)
+  of Enum:
+    return typ
+  of Data:
+    var branches: seq[seq[Type]] = @[]
+    for branch in typ.branches:
+      branches.add(branch.mapIt(mapGeneric(it, map)))
+    return Type(kind: Data, dataKind: typ.dataKind, branches: branches)
 
+
+proc mapToMap*(a: Table[string, Type], b: Table[string, Type]): Table[string, Type] =
+  # {U: T, W: V} {T: int, V: int} : {U: int, W: int}
+  result = initTable[string, Type]()
+  for c, d in a:
+    if b.hasKey(d.label):
+      result[c] = b[d.label]
+    else:
+      result[c] = d

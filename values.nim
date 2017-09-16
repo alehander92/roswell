@@ -3,7 +3,7 @@ import strutils, sequtils, tables
 
 type
   
-  RValueKind* = enum RInt, RFloat, RBool, RString, RNil, RFunction, RArray, RRecord, RAddress
+  RValueKind* = enum RInt, RFloat, RBool, RString, RNil, RFunction, RArray, RRecord, RList, REnum, RData, RAddress
 
   RValue* = ref object of RootObj
     typ*: Type
@@ -27,6 +27,13 @@ type
       ar*:       seq[RValue]
     of RRecord:
       fields*:   seq[RValue]
+    of RList:
+      elements*: seq[RValue]
+    of REnum:
+      e*:        int
+    of RData:
+      active*:   int
+      branch*:   seq[RValue]
     of RAddress:
       address*:  seq[RValue]
 
@@ -48,6 +55,14 @@ proc `$`*(value: RValue): string =
     result = "_[$1]" % value.ar.mapIt($it).join(" ")
   of RRecord:
     result = $value.typ.label
+  of RList:
+    result = "[$1]" % value.elements.mapIt(it).join(" ")
+  of REnum:
+    assert value.typ.kind == Enum
+    result = value.typ.variants[value.e]
+  of RData:
+    assert value.typ.kind == Data and value.typ.dataKind.kind == Enum
+    result = "$1($2)" % [value.typ.dataKind.variants[value.active], value.branch.mapIt($it).join(" ")]
   of RAddress:
     result = "address"
 

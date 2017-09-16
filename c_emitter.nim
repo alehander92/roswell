@@ -20,6 +20,8 @@ type
     j*:         int
     args*:      string
 
+proc checkArray(node: var TripletFunction, module: var TripletModule)
+
 proc emitFunction(node: TripletFunction, module: var CModule): CFunction
 
 proc emit*(a: TripletModule, debug: bool): CModule =
@@ -27,11 +29,15 @@ proc emit*(a: TripletModule, debug: bool): CModule =
   for node in a.predefined:
     if node.called:
       module.functions.add(CFunction(label: $node.f, header: "", raw: core.cDefinitions[node.f], locals: ""))
-  for node in a.functions:
+  var m = a
+  for node in m.functions.mitems:
+    checkArray(node, m)
+  for node in m.functions:
     module.functions.add(emitFunction(node, module))
   module.a.add(core.cDefinitions[core.PStringDefinition])
   module.imports = module.imports.concat(@["stdio.h", "stdlib.h"])
   return module
+
 
 proc format(s: string, debug: bool=false): string =
   if debug:
@@ -72,9 +78,14 @@ proc cType(typ: Type): string =
     else:
       ""
 
-proc cTypeDecl(typ: Type, label: string): string =
+proc cTypeDecl(typ: Type, label: string, local: bool = false): string =
   if typ.kind == Overload:
     result = cTypeDecl(typ.overloads[0], label)
+  elif typ.kind == Complex and typ.label == "Pointer":
+    var value = cType(typ.args[0])
+    result = "$1* $2" % [value, label]
+    if local and len(typ.args) == 2:
+      result = "$1 = ($2*)malloc(sizeof($2) * $3)" % [result, value, typ.args[1].label]
   elif typ.kind != Complex or typ.label != "Array" and typ.label != "Function":
     result = "$1 $2" % [cType(typ), label]
   elif typ.label == "Array":
@@ -130,7 +141,7 @@ proc emitAtom(atom: TripletAtom, module: var CModule, function: var CFunction, d
     var label = module.env.getOrDefault(atom.label)
     if label == nil:
       module.env[atom.label] = atom.typ
-      cem_locals "  $1;\n" % cTypeDecl(atom.typ, atom.label)
+      cem_locals "  $1;\n" % cTypeDecl(atom.typ, atom.label, local=true)
     cem atom.label
   of UConstant:
     case atom.node.kind:
@@ -209,7 +220,7 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     var label = module.env.getOrDefault(node.destination.label)
     if label == nil:
       module.env[node.destination.label] = node.destination.typ
-      cem_locals "$1;\n" % cTypeDecl(node.destination.typ, node.destination.label)
+      cem_locals "$1;\n" % cTypeDecl(node.destination.typ, node.destination.label, local=true)
     result = (true, true) # miss ; \n    
   of TIndexSave:
     ema node.sIndexable, 0
@@ -239,12 +250,23 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
   else:
     cem ""
 
+proc checkArray(node: var TripletFunction, module: var TripletModule) =
+  if node.typ.args[^1].kind == Complex and node.typ.args[^1].label == "Array":
+    node.typ.args[^1].label = "Pointer"
+    # discard node.typ.args[^1].args.pop()
+  for nod in module.functions.mitems:
+    for e in nod.triplets.mitems:
+      if e.kind == TCall and e.function == node.label:
+        e.f.typ = node.typ.args[^1]
+      elif e.kind == TSave and e.value.typ != nil and e.value.typ.kind == Complex and e.value.typ.label == "Pointer":
+        e.destination.typ = e.value.typ
+      elif e.kind == TIndexSave and e.sIndexable.typ != nil and e.sIndexable.typ.kind == Complex and e.sIndexable.typ.label == "Array":
+        e.sIndexable.typ.label = "Pointer"
+        # discard e.sIndexable.typ.args.pop()
+
 proc emitFunction(node: TripletFunction, module: var CModule): CFunction =
   var function = CFunction(label: node.label, args: "", header: "", raw: "", locals: "", depth: 0, j: 0)
   module.env = newEnv[Type](module.env)
-  if node.typ.args[^1].kind == Complex and node.typ.args[^1].label == "Array":
-    node.typ.args[^1].label = "Pointer"
-    discard node.typ.args[^1].args.pop()
   function.header = cHead(node, module, function)
   function.depth = 1
   assert node.typ.kind == Complex
@@ -278,5 +300,6 @@ proc cText*(module: CModule): string =
   result.add(module.imports.mapIt(cImport(it)).join("\n"))
   result.add("\n\n")
   result.add(module.a.join("\n"))
+  result.add(module.functions.filterIt(it.label != "main").mapIt("$1;" % it.header).join("\n"))
   result.add(format(module.functions.mapIt(cDef(it)).join("\n\n"), debug=module.debug))
 

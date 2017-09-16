@@ -1,0 +1,14 @@
+<T U V> _[T U] (T -> V) -> _[V U]
+def map(array f):
+  var result is _[V U]
+  for z element in array:
+    result[z] = f(element)
+  return result
+
+Int -> Int
+def f(a):
+  return *(a 8)
+
+def main:
+  var x = _[4 8]
+  var y = map(x f)  

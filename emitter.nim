@@ -333,6 +333,12 @@ proc emitValue(triplet: Triplet, module: var AsmModule, function: var TextItem) 
   of TDeref:
     emitAtom(triplet.derefedObject, module, function, reg(RAX))
     emitAtom(Operand(kind: OpAddress, address: reg(RAX)), module, function, triplet.destination)
+  of TInstance:
+    discard
+  of TMemberSave:
+    discard
+  of TMember:
+    discard
 
 proc emitBefore(arg: TripletFunction, module: var AsmModule, node: var TextItem) =
   var function = node

@@ -3,13 +3,14 @@ import tables, strutils, sequtils
 
 type
   CModule* = ref object
-    debug*:     bool
-    file*:      string
-    functions*: seq[CFunction]
-    env*:       Env[Type]
-    labels*:    int
-    imports*:   seq[string]
-    a*:         seq[string]
+    debug*:       bool
+    file*:        string
+    definitions*: seq[CDefinition]
+    functions*:   seq[CFunction]
+    env*:         Env[Type]
+    labels*:      int
+    imports*:     seq[string]
+    a*:           seq[string]
 
   CFunction* = object
     label*:     string
@@ -19,19 +20,28 @@ type
     depth*:     int
     j*:         int
     args*:      string
+  
+  CDefinition* = object
+    label*:     string
+    header*:    string
+    def*:       string  
 
 proc checkArray(node: var TripletFunction, module: var TripletModule)
 
 proc emitFunction(node: TripletFunction, module: var CModule): CFunction
 
+proc emitDefinition(definition: Type, module: var CModule): CDefinition
+
 proc emit*(a: TripletModule, debug: bool): CModule =
-  var module = CModule(file: a.file, functions: @[], labels: 0, env: newEnv[Type](nil), imports: @[], debug: debug, a: @[])
+  var module = CModule(file: a.file, definitions: @[], functions: @[], labels: 0, env: newEnv[Type](nil), imports: @[], debug: debug, a: @[])
   for node in a.predefined:
     if node.called:
       module.functions.add(CFunction(label: $node.f, header: "", raw: core.cDefinitions[node.f], locals: ""))
   var m = a
   for node in m.functions.mitems:
     checkArray(node, m)
+  for node in m.definitions:
+    module.definitions.add(emitDefinition(node, module))
   for node in m.functions:
     module.functions.add(emitFunction(node, module))
   module.a.add(core.cDefinitions[core.PStringDefinition])
@@ -247,6 +257,29 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     cem "(*"
     ema node.derefedObject, 0
     cem ")"
+  of TInstance:
+    cem ""
+    # ema node.destination, 0
+    # cem " = "
+    # cem "($1*)malloc(sizeof($1))" % node.destination.typ.label
+  of TMemberSave:
+    ema node.mMember.recordObject, 0
+    cem "."
+    cem node.mMember.recordMember
+    cem " = "
+    ema node.mValue, 0
+    cem ";"
+    ema node.destination, 0
+    cem " = "
+    ema node.mMember.recordObject, 0
+    cem "."
+    cem node.mMember.recordMember
+  of TMember:
+    ema node.destination, 0
+    cem " = "
+    ema node.recordObject, 0
+    cem "."
+    cem node.recordMember
   else:
     cem ""
 
@@ -286,6 +319,30 @@ proc emitFunction(node: TripletFunction, module: var CModule): CFunction =
   module.env = module.env.parent
   result = function
 
+proc emitDefinition(definition: Type, module: var CModule): CDefinition =
+  result = CDefinition(label: definition.label, header: "", def: "")
+  case definition.kind:
+  of Record:
+    result.header = "typedef struct $1 $1;" % definition.label
+    result.def = "typedef struct {"
+    for field, t in definition.fields:
+      result.def.add("  $1;\n" % cTypeDecl(t, field))
+    result.def.add("} $1;" % definition.label)
+  of Enum:
+    result.header = "typedef enum $1 $1;" % definition.label
+    result.def = "typedef enum $1 {$2};" % [definition.label, definition.variants.join(", ")]
+  of Data:
+    result.header = "typedef struct $1Data $1Data;" % definition.label
+    result.def = "typedef struct $1Data {\n  $1Enum active;\n  union branches {\n"
+    for z, branch in definition.branches:
+      result.def.add("    struct B$1 {\n" % $z)
+      for a, t in branch:
+        result.def.add("      $1;\n" % cTypeDecl(t, "t$1" % $a))
+      result.def.add("    }\n")
+    result.def.add("  }\n} $1Data;" % definition.label)
+  else:
+    discard
+
 proc cImport(imp: string): string =
   result = "#include <$1>" % imp
 
@@ -300,6 +357,7 @@ proc cText*(module: CModule): string =
   result.add(module.imports.mapIt(cImport(it)).join("\n"))
   result.add("\n\n")
   result.add(module.a.join("\n"))
+  result.add(module.definitions.mapIt(it.def).join("\n\n"))
   result.add(module.functions.filterIt(it.label != "main").mapIt("$1;" % it.header).join("\n"))
   result.add(format(module.functions.mapIt(cDef(it)).join("\n\n"), debug=module.debug))
 

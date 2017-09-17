@@ -2,7 +2,8 @@ import backend, parser, typechecker, "converter", aasm, triplet, terminal, emitt
 import strutils, osproc
 
 proc backendIndependentCompile*(source: string, name: string, debug: bool=false): TripletModule =
-  var nonOptimized = convert(instantiate(typecheck(parse(source, name, id=0), TOP_ENV)), debug=debug)
+  var (ast, definitions) = typecheck(parse(source, name, id=0), TOP_ENV)
+  var nonOptimized = convert(instantiate(ast), definitions, debug=debug)
   mathOptimize(nonOptimized)
   arrayOptimize(nonOptimized)
   var optimized = nonOptimized

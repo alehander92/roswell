@@ -2,7 +2,7 @@ import ast, env, core, type_env, types, errors, helpers
 import tables, strutils, sequtils
 
 type
-  TripletKind* = enum TBinary, TUnary, TSave, TJump, TIf, TArg, TCall, TParam, TResult, TLabel, TInline, TIndex, TArray, TIndexSave, TAddr, TDeref
+  TripletKind* = enum TBinary, TUnary, TSave, TJump, TIf, TArg, TCall, TParam, TResult, TLabel, TInline, TIndex, TArray, TIndexSave, TAddr, TDeref, TInstance, TMemberSave, TMember
 
   Triplet* = ref object
     destination*: TripletAtom
@@ -52,6 +52,14 @@ type
       addressObject*: TripletAtom
     of TDeref:
       derefedObject*: TripletAtom
+    of TInstance:
+      instanceType*: string
+    of TMemberSave:
+      mMember*:      Triplet
+      mValue*:       TripletAtom
+    of TMember:
+      recordObject*: TripletAtom
+      recordMember*: string
 
   TripletAtomKind* = enum ULabel, UConstant
 
@@ -72,15 +80,19 @@ type
     typ*:         Type
 
   TripletModule* = object
-    file*:       string
-    functions*:  seq[TripletFunction]
-    env*:        Env[int]
-    temps*:      int
-    labels*:     int
-    predefined*: seq[Predefined]
-    debug*:      bool
+    file*:        string
+    definitions*: seq[Type]
+    functions*:   seq[TripletFunction]
+    env*:         Env[int]
+    temps*:       int
+    labels*:      int
+    predefined*:  seq[Predefined]
+    debug*:       bool
 
 proc render*(t: TripletAtom, depth: int): string =
+  if t == nil:
+    result = "nil"
+    return
   result = repeat("  ", depth)
   case t.kind:
   of ULabel:
@@ -188,6 +200,23 @@ proc render*(triplet: Triplet, depth: int): string =
     first = $triplet.destination
     second = "DEREF"
     third = $triplet.derefedObject
+    equal = true
+  of TInstance:
+    first = $triplet.destination
+    second = "INSTANCE"
+    third = triplet.instanceType
+    equal = true
+  of TMemberSave:
+    first = $triplet.destination
+    second = $triplet.mMember.recordObject
+    third = triplet.mMember.recordMember
+    fourth = $triplet.mValue
+    equal = true
+  of TMember:
+    first = $triplet.destination
+    second = "MEMBER"
+    third = $triplet.recordObject
+    fourth = triplet.recordMember
     equal = true
   result.add(leftAlign(first, 18, ' '))
   if equal:

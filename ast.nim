@@ -6,7 +6,7 @@ type
 
   Operator* = enum OpAnd, OpOr, OpEq, OpMod, OpAdd, OpSub, OpMul, OpDiv, OpNotEq, OpGt, OpGte, OpLt, OpLte, OpXor
 
-  NodeKind* = enum AProgram, AGroup, ARecord, AEnum, AField, AInstance, AIField, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AForEach, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref
+  NodeKind* = enum AProgram, AGroup, ARecord, AEnum, AData, AField, AInstance, AIField, ABranch, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AForEach, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref
 
   Node* = ref object of RootObj
     location*: Location
@@ -24,6 +24,9 @@ type
     of AEnum:
       eLabel*:        string
       variants*:      seq[string]
+    of AData:
+      dLabel*:        string
+      branches*:      seq[Node]
     of AField:
       fieldLabel*:    string
       fieldType*:     Type
@@ -33,6 +36,9 @@ type
     of AIField:
       iFieldLabel*:   string
       iFieldValue*:   Node
+    of ABranch:
+      bKind*:         string
+      bTypes*:        seq[Type]
     of AInt:
       value*:         int
     of AFloat:
@@ -135,12 +141,16 @@ proc render*(node: Node, depth: int): string =
       "ARecord($1):\n$2" % [node.rLabel, node.fields.mapIt(render(it, 2)).join("\n")]
     of AEnum:
       "AEnum($1):\n$2" % [node.eLabel, node.variants.mapIt("    $2" % it).join("\n")]
+    of AData:
+      "AData($1):\n$2" % [node.dLabel, node.branches.mapIt(render(it, depth + 1)).join("\n")]
     of AField:
       "AField($1$2)" % [node.fieldLabel, $node.fieldType]
     of AInstance:
       "AInstance($1):\n$2" % [node.iLabel, node.iFields.mapIt(render(it, depth + 1)).join("\n")]
     of AIField:
       "AIField($1 $2)" % [node.iFieldLabel, render(node.iFieldValue, 0)]
+    of ABranch:
+      "ABranch($1 $2)" % [node.bKind, node.bTypes.mapIt($it).join(" ")]
     of AInt:
       "AInt($1)" % $node.value
     of AFloat:

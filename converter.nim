@@ -10,8 +10,8 @@ type
 
 proc convertFunction*(node: Node, module: var TripletModule): TripletFunction
 
-proc convert*(ast: Node, debug: bool=false): TripletModule =
-  var module = TripletModule(file: ast.name, functions: @[], env: env.newEnv[int](nil), temps: 0, labels: 0, debug: debug)
+proc convert*(ast: Node, definitions: seq[Type], debug: bool=false): TripletModule =
+  var module = TripletModule(file: ast.name, definitions: definitions, functions: @[], env: env.newEnv[int](nil), temps: 0, labels: 0, debug: debug)
   if ast.kind != AProgram:
     raise newException(RoswellError, "undefined program")
   for function in ast.functions:
@@ -38,6 +38,15 @@ proc newLabel(module: var TripletModule): string =
 
 proc convertNode*(node: Node, module: var TripletModule, function: var TripletFunction): TripletAtom =
   case node.kind:
+  of AInstance:
+    var instance = module.newTemp(node.tag)
+    append Triplet(kind: TInstance, instanceType: node.iLabel, destination: instance, location: node.location)
+    for field in node.iFields:
+      assert field.kind == AIField
+      var mValue = convertNode(field.iFieldValue, module, function)
+      var destination = module.newTemp(field.tag)
+      append Triplet(kind: TMemberSave, mMember: Triplet(kind: TMember, recordObject: instance, recordMember: field.iFieldLabel), mValue: mValue, destination: destination, location: node.location)
+    result = instance      
   of AGroup:
     for next in node.nodes:
       discard convertNode(next, module, function)
@@ -107,7 +116,10 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     append Triplet(kind: TJump, jLocation: label, location: node.location)
     append Triplet(kind: TLabel, l: endLabel, location: node.forEachBlock.nodes[^1].location)
   of AMember:
-    raise newException(RoswellError, "unimplemented member")
+    var destination = module.newTemp(node.tag)
+    var receiver = convertNode(node.receiver, module, function)
+    append Triplet(kind: TMember, recordObject: receiver, recordMember: node.member, destination: destination)
+    result = destination
   of ADefinition:
     if node.definition.kind == AAssignment:
       discard convertNode(node.definition, module, function)

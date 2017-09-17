@@ -126,6 +126,21 @@ proc eval*(triplet: Triplet, env: var Env[RValue], next: var string = "", functi
     assert derefedObject.kind == RAddress
     result = derefedObject.address[0]
     env[triplet.destination.label] = result
+  of TInstance:
+    var f = RValue(kind: RInstance, typ: triplet.destination.typ, fields: initTable[string, RValue]())
+    result = f
+    env[triplet.destination.label] = f
+  of TMemberSave:
+    evalAtom mValue
+    var f = eval(triplet.mMember.recordObject, env)
+    f.fields[triplet.mMember.recordMember] = mValue
+    result = mValue
+    env[triplet.destination.label] = mValue
+  of TMember:
+    evalAtom recordObject
+    assert recordObject.kind == RInstance
+    result = recordObject.fields[triplet.recordMember]
+    env[triplet.destination.label] = result
 
 proc eval*(function: TripletFunction, args: seq[RValue], module: TripletModule, env: var Env[RValue]): RValue =
   var functionEnv = newEnv[RValue](env)

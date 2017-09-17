@@ -3,7 +3,7 @@ import strutils, sequtils, tables
 
 type
   
-  RValueKind* = enum RInt, RFloat, RBool, RString, RNil, RFunction, RArray, RRecord, RList, REnum, RData, RAddress
+  RValueKind* = enum RInt, RFloat, RBool, RString, RNil, RFunction, RArray, RList, REnum, RData, RAddress, RInstance
 
   RValue* = ref object of RootObj
     typ*: Type
@@ -25,8 +25,6 @@ type
       length*:   int
       cap*:      int
       ar*:       seq[RValue]
-    of RRecord:
-      fields*:   seq[RValue]
     of RList:
       elements*: seq[RValue]
     of REnum:
@@ -36,6 +34,8 @@ type
       branch*:   seq[RValue]
     of RAddress:
       address*:  seq[RValue]
+    of RInstance:
+      fields*:   Table[string, RValue]
 
 proc `$`*(value: RValue): string =
   case value.kind:
@@ -53,8 +53,6 @@ proc `$`*(value: RValue): string =
     result = "$1 $2" % [$value.function, $value.instance.typ]
   of RArray:
     result = "_[$1]" % value.ar.mapIt($it).join(" ")
-  of RRecord:
-    result = $value.typ.label
   of RList:
     result = "[$1]" % value.elements.mapIt(it).join(" ")
   of REnum:
@@ -65,7 +63,13 @@ proc `$`*(value: RValue): string =
     result = "$1($2)" % [value.typ.dataKind.variants[value.active], value.branch.mapIt($it).join(" ")]
   of RAddress:
     result = "address"
-
+  of RInstance:
+    var fields = ""
+    for t, u in value.fields:
+      fields.add("$1 = $2 " % [t, $value.fields[t]])
+    if len(fields) > 0:
+      fields = fields[0..^2]
+    result = "$1{$2}" % [value.typ.label, fields]
 let R_NONE* = RValue(kind: RNil)
 
 proc rText(args: seq[RValue], env: Env[RValue]): RValue=

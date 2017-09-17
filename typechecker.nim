@@ -3,15 +3,23 @@ import strutils, sequtils, tables, terminal
 
 proc typecheckNode(node: Node, env: var TypeEnv): Node
 
-proc typecheck*(ast: Node, env: var TypeEnv): Node =
+proc definitionToTypes(node: Node): seq[Type]
+
+proc typecheck*(ast: Node, env: var TypeEnv): (Node, seq[Type]) =
   assert ast.kind == AProgram
+  var definitions: seq[Type] = @[]
   # this way if b defined after a, a knows b
   for node in ast.functions:
     assert node.kind == AFunction
     env.define(node.label, node.types)
+  for node in ast.definitions:
+    var types = definitionToTypes(node)
+    for t in types:
+      env[t.label] = t
+    definitions = concat(definitions, types)
   var value = typecheckNode(ast, env)
   styledWriteLine(stdout, fgBlue, "TYPECHECK\n", $value, resetStyle)
-  return value
+  return (value, definitions)
 
 proc mangle(typ: Type): string =
   var s = simple(typ)
@@ -26,6 +34,29 @@ proc mangle(s: string, unique: bool, z: int, typ: Type): string =
     return s
   else:
     return "$1_$2_$3" % [s, $z, mangle(typ)]
+
+proc definitionToTypes(node: Node): seq[Type] =
+  case node.kind:
+  of ARecord:
+    result = @[Type(kind: Record, label: node.rLabel, fields: initTable[string, Type](), positions: initTable[string, int]())]
+    for z, field in node.fields:
+      assert field.kind == AField
+      result[0].positions[field.fieldLabel] = z
+      result[0].fields[field.fieldLabel] = field.fieldType
+  of AEnum:
+    result = @[Type(kind: Enum, label: node.eLabel, variants: node.variants)]
+  of AData:
+    result = @[Type(kind: Data, label: node.dLabel, branches: @[])]
+    var dataKind = Type(kind: Enum, label: "$1Enum" % result[0].label)
+    dataKind.variants = @[]
+    for branch in node.branches:
+      assert branch.kind == ABranch
+      dataKind.variants.add(branch.bKind)
+      result[0].branches.add(branch.bTypes)
+    result[0].dataKind = dataKind
+    result.add(dataKind)
+  else:
+    result = @[]
 
 proc typecheckNode(node: Node, env: var TypeEnv): Node =
   case node.kind:
@@ -43,13 +74,28 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
     var newNode = node
     newNode.tag = voidType
     return newNode
+  of AData:
+    var newNode = node
+    newNode.tag = voidType
+    return newNode
   of AField:
     var newNode = node
     newNode.tag = voidType
     return newNode
   of AInstance:
-    return Node(kind: AInstance, iLabel: node.iLabel, iFields: node.iFields, location: node.location)
+    var t = env.top[node.iLabel]
+    if t.kind != Record:
+      raise newException(RoswellError, "expected $1 record" % node.iLabel)
+    var newIFields: seq[Node] = node.iFields.mapIt(typecheckNode(it, env))
+    for field in newIFields:
+      assert field.kind == AIField
+      if field.iFieldLabel notin t.fields or field.tag != t.fields[field.iFieldLabel]:
+        raise newException(RoswellError, "resolve $1" % field.iFieldLabel)
+    return Node(kind: AInstance, iLabel: node.iLabel, iFields: newIFields, tag: t, location: node.location)
   of AIField:
+    var newIFieldValue = typecheckNode(node.iFieldValue, env)
+    return Node(kind: AIField, iFieldLabel: node.iFieldLabel, iFieldValue: newIFieldValue, tag: newIFieldValue.tag)
+  of ABranch:
     var newNode = node
     newNode.tag = voidType
     return newNode
@@ -202,7 +248,11 @@ proc typecheckNode(node: Node, env: var TypeEnv): Node =
     return Node(kind: ADefinition, id: node.id, definition: newDefinition, tag: void_type, location: node.location)
   of AMember:
     var newReceiver = typecheckNode(node.receiver, env)
-    raise newException(RoswellError, "feature is missing")
+    if newReceiver.tag.kind != Record:
+      raise newException(RoswellError, "expected $1 record" % $node.receiver)
+    if node.member notin newReceiver.tag.fields:
+      raise newException(RoswellError, "field $1 missing" % node.member)
+    return Node(kind: AMember, receiver: newReceiver, member: node.member, tag: newReceiver.tag.fields[node.member], location: node.location)
   of AIndex:
     var newIndexable = typecheckNode(node.indexable, env)
     var newIndex = typecheckNode(node.index, env)

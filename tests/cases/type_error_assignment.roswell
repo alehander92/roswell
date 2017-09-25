@@ -1,0 +1,8 @@
+def main:
+  var x = 2
+  x = false
+
+# error:
+# x:
+#   expected Int
+#   got      Bool

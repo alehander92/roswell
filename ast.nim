@@ -1,18 +1,17 @@
-import core, types, type_env
+import core, location, operator, types, type_env, triplet
 import strutils, sequtils, tables
 
 type
   DebugFlag* = distinct bool
 
-  Operator* = enum OpAnd, OpOr, OpEq, OpMod, OpAdd, OpSub, OpMul, OpDiv, OpNotEq, OpGt, OpGte, OpLt, OpLte, OpXor
+  NodeKind* = enum AProgram, AGroup, ARecord, AEnum, AData, AField, AInstance, AIField, ADataInstance, ABranch, AInt, AEnumValue, AFloat, ABool, ACall, AFunction, ALabel, AString, AChar, APragma, AList, AArray, AOperator, AType, AReturn, AIf, AForEach, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref, ADataIndex, AImport, AMacro, AMacroInvocation
 
-  NodeKind* = enum AProgram, AGroup, ARecord, AEnum, AData, AField, AInstance, AIField, ABranch, AInt, AFloat, ABool, ACall, AFunction, ALabel, AString, APragma, AArray, AOperator, AType, AReturn, AIf, AForEach, AAssignment, ADefinition, AMember, AIndex, AIndexAssignment, APointer, ADeref
-
-  Node* = ref object of RootObj
+  BNode* = object of RootObj
     location*: Location
     case kind*: NodeKind:
     of AProgram:
       name*:          string
+      imports*:       seq[Node]
       definitions*:   seq[Node]
       functions*:     seq[Node]
       predefined*:    seq[Predefined]
@@ -36,11 +35,18 @@ type
     of AIField:
       iFieldLabel*:   string
       iFieldValue*:   Node
+    of ADataInstance:
+      en*:            string
+      enArgs*:        seq[Node]
+      enGeneric*:     seq[Type]
     of ABranch:
       bKind*:         string
       bTypes*:        seq[Type]
     of AInt:
       value*:         int
+    of AEnumValue:
+      e*:             string
+      eValue*:        int
     of AFloat:
       f*:             float
     of ABool:
@@ -55,6 +61,10 @@ type
       code*:          Node
     of ALabel, AString, APragma:
       s*:             string
+    of AChar:
+      c*:             char
+    of AList:
+      lElements*:     seq[Node]
     of AArray:
       elements*:      seq[Node]
     of AOperator:
@@ -92,12 +102,25 @@ type
       targetObject*:  Node
     of ADeref:
       derefedObject*: Node
+    of ADataIndex:
+      data*:          Node
+      dataIndex*:     int
+    of AImport:
+      importLabel*:   string
+      importAliases*: seq[string]
+    of AMacro:
+      macroLabel*:    string
+      macroArgs*:     seq[string]
+      macroBlock*:    Node
+      macroFunction*: TripletFunction
+      hasBlock*:      bool
+    of AMacroInvocation:
+      aName*:         string
+      iArgs*:         seq[Node]
+      iBlock*:        Node
     tag*:             Type
 
-  Location* = object
-    line*:    int
-    column*:  int
-    fileId*:  int
+  Node* = ref BNode
 
   NodeModule = enum MLib, MNative, MNim
 
@@ -116,7 +139,9 @@ let OPERATOR_SYMBOLS*: array[Operator, string] = [
   ">=",   # OpGte
   "<",    # OpLt
   "<=",   # OpLte
-  "^"     # OpXor
+  "^",    # OpXor
+  "not",  # OpNot
+  "@"     # OpAt
 ]
 
 
@@ -149,10 +174,14 @@ proc render*(node: Node, depth: int): string =
       "AInstance($1):\n$2" % [node.iLabel, node.iFields.mapIt(render(it, depth + 1)).join("\n")]
     of AIField:
       "AIField($1 $2)" % [node.iFieldLabel, render(node.iFieldValue, 0)]
+    of ADataInstance:
+      "ADataInstance($1):\n$2" % [node.en, node.enArgs.mapIt(render(it, depth + 1)).join("\n")]
     of ABranch:
       "ABranch($1 $2)" % [node.bKind, node.bTypes.mapIt($it).join(" ")]
     of AInt:
       "AInt($1)" % $node.value
+    of AEnumValue:
+      "AEnumValue($1)" % node.e
     of AFloat:
       "AFloat($1)" % $node.f
     of ABool:
@@ -175,6 +204,10 @@ proc render*(node: Node, depth: int): string =
       "AString('$1')" % node.s
     of APragma:
       "APragma($1)" % node.s
+    of AChar:
+      "AChar($1)" % $node.c
+    of AList:
+      "AList($1)" % node.lElements.mapIt(render(it, depth + 1).strip(leading=true)).join(" ")
     of AArray:
       "AArray($1)" % node.elements.mapIt(render(it, depth + 1).strip(leading=true)).join(" ")
     of AOperator:
@@ -210,7 +243,15 @@ proc render*(node: Node, depth: int): string =
     of APointer:
       "APointer($1)" % [render(node.targetObject, 0)]
     of ADeref:
-      "ADeref($1)" % [render(node.derefedObject, 0)]      
+      "ADeref($1)" % [render(node.derefedObject, 0)]
+    of ADataIndex:
+      "ADataIndex($1 $2)" % [render(node.data, 0), $node.dataIndex]
+    of AImport:
+      "AImport($1 $2)" % [node.importLabel, node.importAliases.join(" ")]
+    of AMacro:
+      "AMacro($1)" % node.macroLabel
+    of AMacroInvocation:
+      "AMacroInvocation($1):\n$2" % [node.aName, node.iArgs.mapIt(render(it, depth + 1)).join("\n")]
     else: ""
 
   result = repeat("  ", depth) & value
@@ -231,11 +272,15 @@ iterator mitems*(range: Node): var Node =
     for i in range.iFields.mitems: yield i
   of AIField:
     yield range.iFieldValue
+  of ADataInstance:
+    for e in range.enArgs.mitems: yield e
   of ACall:
     yield range.function
     for a in range.args.mitems: yield a
   of AFunction:
     yield range.code
+  of AList:
+    for l in range.lElements.mitems: yield l
   of AArray:
     for e in range.elements.mitems: yield e
   of AReturn:

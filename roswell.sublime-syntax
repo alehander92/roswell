@@ -1,0 +1,84 @@
+%YAML 1.2
+---
+name: Roswell
+scope: source.roswell
+file_extensions: [roswell]
+
+contexts:
+  main:
+    - scope: constant.numeric.float.roswell
+      match: \b(?i:(\d+\.\d+))
+    - scope: constant.numeric.integer.decimal.roswell
+      match: \b(?i:(\d+))
+    - scope: plain.roswell
+      match: \b(?:([a-zA-Z][a-zA-Z0-9_\?\!]*)\()
+      captures:
+        1: constant.numeric.float.roswell  
+    - scope: keyword.control.import.roswell
+      match: \b(?:(import|var|ves))\b
+    - scope: keyword.control.roswell
+      match: \b(def|record|enum|data|macro|in|for|try|raise|if|else|match|return)\b
+    - scope: keyword.boolean.roswell
+      match: \b(true|false)\b
+    - scope: keyword.control.roswell
+      match: \b(nil|_|is)\b
+    - scope: keyword.boolean.roswell
+      match: ([\<\>\[\]\{\}\~\`])
+    - scope: support.class.roswell
+      match: (\$[a-zA-Z]+)\b
+    - scope: support.class.roswell
+      match: \b([A-Z][a-zA-Z0-9_]*)\b
+    - scope: comment.roswell
+      match: ^\#.+
+    - scope: string.roswell
+      match: "'"
+      push:  string
+    - scope: plain.roswell
+      match: \b(?:\.([a-zA-Z][a-zA-Z0-9_]*)\b[^\(])
+      captures:
+        1: keyword.boolean.roswell
+    - scope: keyword.boolean.roswell
+      match: ':'
+  string:
+    - meta_scope: string.quoted.double.roswell
+    - scope: constant.character.escape.roswell
+      match: '#{'
+      push: interpolation
+    - match: "'"
+      pop: true
+
+  interpolation:
+    - meta_scope: plain.roswell
+    - scope: constant.numeric.float.roswell
+      match: \b(?i:(\d+\.\d+))
+    - scope: constant.numeric.integer.decimal.roswell
+      match: \b(?i:(\d+))
+    - scope: plain.roswell
+      match: \b(?:([a-zA-Z][a-zA-Z0-9_\?\!]*)\()
+      captures:
+        1: constant.numeric.float.roswell  
+    - scope: keyword.control.import.roswell
+      match: \b(?:(import|var|ves))\b
+    - scope: keyword.control.roswell
+      match: \b(def|record|enum|main|data|macro|in|for|try|raise|if|else|match|return)\b
+    - scope: keyword.boolean.roswell
+      match: \b(true|false)\b
+    - scope: keyword.control.roswell
+      match: \b(nil|_|is)\b
+    - scope: support.class.roswell
+      match: (\$[a-zA-Z]+)\b
+    - scope: support.class.roswell
+      match: \b([A-Z][a-zA-Z0-9_]*)\b
+    - scope: string.roswell
+      match: "'"
+      push:  string
+    - scope: plain.roswell
+      match: \b(?:\.([a-zA-Z][a-zA-Z0-9_]*)\b[^\(])
+      captures:
+        1: keyword.boolean.roswell
+    - scope: keyword.boolean.roswell
+      match: ':'
+    - scope: constant.character.escape.roswell
+      match: '}'
+      pop: true
+    

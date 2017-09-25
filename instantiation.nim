@@ -1,11 +1,11 @@
-import ast, types, env
+import ast, types, options, env
 import strutils, sequtils, tables, terminal
 
 proc translateGeneric(function: Node, ast: Node, map: Table[string, Type], label: string): seq[Node]
 
 proc simplifyGeneric(node: var Node, ast: Node): Node
 
-proc instantiate*(ast: Node): Node =
+proc instantiate*(ast: Node, options: Options = Options(debug: false, test: false)): Node =
   assert ast.kind == AProgram
   var newFunctions: seq[Node] = @[]
   for node in ast.functions.mitems:
@@ -17,7 +17,8 @@ proc instantiate*(ast: Node): Node =
     else:
       newFunctions.add(simplifyGeneric(node, ast))
   ast.functions = newFunctions
-  styledWriteLine(stdout, fgGreen, "INSTANTIATE\n", $ast, resetStyle)
+  if not options.test:
+    styledWriteLine(stdout, fgGreen, "INSTANTIATE\n", $ast, resetStyle)
   return ast
 
 proc translateNode(node: var Node, map: Table[string, Type], ast: Node, nodes: var seq[Node]) =

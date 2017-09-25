@@ -1,8 +1,8 @@
-import ../triplet, ../ast, ../top
+import ../triplet, ../ast, ../top, ../operator
 import strutils, sequtils
 
 proc isMachine*(label: string): bool
-proc constOp(op: Operator, left: Node, right: Node): Node
+proc constOp(op: Operator, left: TripletAtom, right: TripletAtom): TripletAtom
 proc replace(next: var Triplet, label: string, constant: TripletAtom)
 
 # machine-independent optimizer
@@ -12,9 +12,8 @@ proc mathOptimize*(module: var TripletModule) =
     var triplets: seq[Triplet] = @[]
     var z = 0
     for triplet in function.triplets.mitems:
-      if triplet.kind == TBinary and triplet.left.kind == UConstant and triplet.right.kind == UConstant and
-         triplet.left.node.kind == AInt and triplet.right.node.kind == AInt:
-        var constant = TripletAtom(kind: UConstant, node: constOp(triplet.op, triplet.left.node, triplet.right.node), typ: intType)
+      if triplet.kind == TBinary and triplet.left.kind == UInt and triplet.right.kind == UInt:
+        var constant = constOp(triplet.op, triplet.left, triplet.right)
         assert triplet.destination.kind == ULabel
         if not isMachine(triplet.destination.label):
           triplets.add(Triplet(kind: TSave, destination: triplet.destination, value: constant))
@@ -30,16 +29,18 @@ proc mathOptimize*(module: var TripletModule) =
 proc isMachine*(label: string): bool =
   result = len(label) > 0 and label[0] == 't' and label[1..^1].isDigit()
 
-proc constOp(op: Operator, left: Node, right: Node): Node =
+proc constOp(op: Operator, left: TripletAtom, right: TripletAtom): TripletAtom =
   if left.kind != right.kind:
     return left
   case left.kind:
-  of AInt:
+  of UInt:
     case op:
-      of OpAdd: return Node(kind: AInt, value: left.value + right.value)
-      of OpSub: return Node(kind: AInt, value: left.value - right.value)
-      of OpMul: return Node(kind: AInt, value: left.value * right.value)
-      of OpDiv: return Node(kind: AInt, value: left.value div right.value)
+      of OpAdd:   return TripletAtom(kind: UInt,  i: left.i + right.i, typ: intType)
+      of OpSub:   return TripletAtom(kind: UInt,  i: left.i - right.i, typ: intType)
+      of OpMul:   return TripletAtom(kind: UInt,  i: left.i * right.i, typ: intType)
+      of OpDiv:   return TripletAtom(kind: UInt,  i: left.i div right.i, typ: intType)
+      of OpEq:    return TripletAtom(kind: UBool, b: left.i == right.i, typ: boolType)
+      of OpNotEq: return TripletAtom(kind: UBool, b: left.i != right.i, typ: boolType) 
       else:     return left
   else:
     return left

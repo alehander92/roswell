@@ -1,8 +1,8 @@
-import ast, env, core, type_env, types, errors, helpers
+import env, location, operator, core, type_env, types, errors, helpers
 import tables, strutils, sequtils
 
 type
-  TripletKind* = enum TBinary, TUnary, TSave, TJump, TIf, TArg, TCall, TParam, TResult, TLabel, TInline, TIndex, TArray, TIndexSave, TAddr, TDeref, TInstance, TMemberSave, TMember
+  TripletKind* = enum TBinary, TUnary, TSave, TJump, TIf, TArg, TCall, TParam, TResult, TLabel, TInline, TIndex, TList, TArray, TIndexSave, TAddr, TDeref, TInstance, TMemberSave, TMember, TDataInstance, TDataIndex, TDataIndexSave
 
   Triplet* = ref object
     destination*: TripletAtom
@@ -42,6 +42,8 @@ type
     of TIndex:
       indexable*:   TripletAtom
       iindex*:      TripletAtom
+    of TList:
+      discard
     of TArray:
       arrayCount*:  int
     of TIndexSave:
@@ -60,8 +62,17 @@ type
     of TMember:
       recordObject*: TripletAtom
       recordMember*: string
+    of TDataInstance:
+      en*:           Type
+      enActive*:     int
+    of TDataIndex:
+      data*:         TripletAtom
+      dataIndex*:    int
+    of TDataIndexSave:
+      enData*:       Triplet
+      enValue*:      TripletAtom
 
-  TripletAtomKind* = enum ULabel, UConstant
+  TripletAtomKind* = enum ULabel, UInt, UEnum, UFloat, UString, UBool, UChar
 
   TripletAtom* = ref object
     triplet*: Triplet
@@ -69,8 +80,19 @@ type
     case kind*: TripletAtomKind
     of ULabel:
       label*: string
-    of UConstant:
-      node*: Node
+    of UInt:
+      i*: int
+    of UEnum:
+      e*: string
+      eValue*: int
+    of UFloat:
+      f*: float
+    of UString:
+      s*: string
+    of UBool:
+      b*: bool
+    of UChar:
+      c*: char
 
   TripletFunction* = object
     label*:       string
@@ -97,18 +119,18 @@ proc render*(t: TripletAtom, depth: int): string =
   case t.kind:
   of ULabel:
     result.add(t.label)
-  of UConstant:
-    case t.node.kind:
-    of AInt:
-      result.add($t.node.value)
-    of AString:
-      result.add($t.node.s)
-    of AFloat:
-      result.add($t.node.f)
-    of ABool:
-      result.add($t.node.b)
-    else:
-      result.add($t.node)
+  of UInt:
+    result.add($t.i)
+  of UEnum:
+    result.add(t.e)
+  of UString:
+    result.add(t.s)
+  of UFloat:
+    result.add($t.f)
+  of UBool:
+    result.add($t.b)
+  of UChar:
+    result.add($t.c)
   if t.kind != ULabel or t.label != "_":
     result.add(" %")
     result.add(simple(t.typ))
@@ -169,7 +191,10 @@ proc render*(triplet: Triplet, depth: int): string =
     second = $triplet.destination
     equal = false
   of TLabel:
-    return repeat("  ", depth - 1) & triplet.l & ":"
+    if depth > 0:
+      return repeat("  ", depth - 1) & triplet.l & ":"
+    else:
+      return triplet.l & ":"
   of TInline:
     first = "INLINE"
     second = $triplet.code
@@ -179,6 +204,10 @@ proc render*(triplet: Triplet, depth: int): string =
     second = "INDEX"
     third = $triplet.indexable
     fourth = $triplet.iindex
+    equal = true
+  of TList:
+    first = $triplet.destination
+    second = "LIST"
     equal = true
   of TArray:
     first = $triplet.destination
@@ -217,6 +246,21 @@ proc render*(triplet: Triplet, depth: int): string =
     second = "MEMBER"
     third = $triplet.recordObject
     fourth = triplet.recordMember
+    equal = true
+  of TDataInstance:
+    first = $triplet.destination
+    second = "DATAINSTANCE"
+    third = $triplet.enActive
+    equal = true
+  of TDataIndex:
+    first = $triplet.destination
+    second = "DATAINDEX"
+    third = $triplet.data
+    equal = true
+  of TDataIndexSave:
+    first = $triplet.destination
+    second = $triplet.enData.dataIndex
+    third = $triplet.enValue
     equal = true
   result.add(leftAlign(first, 18, ' '))
   if equal:

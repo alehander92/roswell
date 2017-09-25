@@ -1,9 +1,9 @@
 import strutils, sequtils, tables
 
 type
-  TypeKind* = enum Simple, Complex, Generic, Overload, Default, Record, Enum, Data
+  TypeKind* = enum Simple, Complex, Generic, Default, Record, Enum, Data
 
-  Type* = ref object
+  BType* = object
     label*: string
     case kind*: TypeKind
     of Simple: discard
@@ -13,8 +13,6 @@ type
       genericArgs*: seq[string]
       complex*: Type
       instantiations*: seq[Instantiation]
-    of Overload:
-      overloads*: seq[Type]
     of Default: discard # for display/text: if no other types are matched, this works
     of Record:
       fields*: Table[string, Type]
@@ -23,7 +21,10 @@ type
       variants*: seq[string]
     of Data:
       dataKind*: Type
+      active*:   int
       branches*: seq[seq[Type]]
+
+  Type* = ref BType
 
   Instantiation* = object
     label*:     string
@@ -49,8 +50,6 @@ proc render*(typ: Type, depth: int): string =
       "Complex{$1, $2}" % [typ.label, typ.args.mapIt($it).join(" ")]
     of Generic:
       "Generic{$1, $2, $3}" % [typ.label, typ.genericArgs.mapIt($it).join(" "), $typ.complex]
-    of Overload:
-      "Overload{$1, $2}" % [if typ.label != nil: typ.label else: "", typ.overloads.mapIt($it).join("  ")]
     of Default:
       "Default" 
     of Record:
@@ -75,6 +74,12 @@ proc simpleType*(label: string): Type =
 
 proc complexType*(label: string, args: varargs[Type]): Type =
   result = Type(kind: Complex, label: label, args: @args)
+
+proc enumType*(label: string, variants: seq[string]): Type =
+  result = Type(kind: Enum, label: label, variants: variants)
+
+proc dataType*(label: string, dataKind: Type, active: int, branches: seq[seq[Type]]): Type =
+  result = Type(kind: Data, label: label, dataKind: dataKind, active: active, branches: branches)
 
 proc unifyAll*(a: seq[Type], b: seq[Type], genericArgs: seq[string], map: var Table[string, Type]): bool
 
@@ -110,9 +115,6 @@ proc unify(a: Type, b: Type, genericArgs: seq[string], map: var Table[string, Ty
       return unifyAll(a.args, b.args, genericArgs, map)
     of Generic:
       return false
-    of Overload:
-      if a.kind != Overload: return false
-      return unifyAll(a.overloads, b.overloads, genericArgs, map)
     of Default:
       return true
     of Record:
@@ -134,6 +136,7 @@ proc allZip*(a: seq[string], b: seq[string]): bool =
   return true
 
 proc unifyAll*(a: seq[Type], b: seq[Type], genericArgs: seq[string], map: var Table[string, Type]): bool =
+  # echo a, b, genericArgs, map
   if len(a) != len(b):
     return false
   for j in low(a)..high(a):
@@ -149,28 +152,26 @@ proc `==`*(typ: Type, b: Type): bool =
     return cast[pointer](typ) == nil
   elif typ.kind == Default or b.kind == Default:
     return true
-  elif typ.kind != b.kind:
+  elif (typ.kind notin {Simple, Record, Enum, Data} or b.kind notin {Simple, Record, Enum, Data}) and typ.kind != b.kind:
     return false
   elif typ.label != b.label:
     return false
   else:
     case typ.kind:
     of Simple:
-      return true
+      return b.kind in {Simple, Record, Enum, Data} and typ.label == b.label
     of Complex:
       return unifyAll(typ.args, b.args, @[], map)
     of Generic:
       return allZip(typ.genericArgs, b.genericArgs) and typ.complex == b.complex
-    of Overload:
-      return unifyAll(typ.overloads, b.overloads, @[], map)
     of Default:
       return true
     of Record:
-      return true
+      return b.kind in {Simple, Record, Enum, Data} and typ.label == b.label
     of Enum:
-      return true
+      return b.kind in {Simple, Record, Enum, Data} and typ.label == b.label
     of Data:
-      return true
+      return b.kind in {Simple, Record, Enum, Data} and typ.label == b.label
 
 proc simple*(typ: Type): string =
   if typ == nil:
@@ -201,8 +202,6 @@ proc isGeneric*(typ: Type, genericArgs: seq[string]): bool =
     return typ.args.anyIt(isGeneric(it, genericArgs))
   of Generic:
     return true
-  of Overload:
-    return typ.overloads.anyIt(isGeneric(it, genericArgs))
   of Default:
     return false
   of Record:
@@ -229,8 +228,6 @@ proc mapGeneric*(typ: Type, map: Table[string, Type], simple: bool = false): Typ
         return mapGeneric(typ.complex, map)
     else:
       return Type(kind: Generic, label: typ.label, genericArgs: typ.genericArgs, complex: mapGeneric(typ.complex, map))
-  of Overload:
-    return Type(kind: Overload, label: typ.label, overloads: typ.overloads.mapIt(mapGeneric(it, map)))
   of Default:
     return typ
   of Record:

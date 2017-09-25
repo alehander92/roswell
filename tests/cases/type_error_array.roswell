@@ -1,0 +1,8 @@
+def main:
+  var x = _[2 false]
+  display(x)
+
+# error:
+# element:
+#   expected Int
+#   got      Bool

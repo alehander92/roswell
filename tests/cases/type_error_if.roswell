@@ -1,0 +1,8 @@
+def main:
+  if 2:
+    display('x')
+
+# error:
+# if:
+#   expected Bool
+#   got      Int

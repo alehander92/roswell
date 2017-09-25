@@ -1,4 +1,4 @@
-import triplet, ast, core, types, top, env, errors
+import options, triplet, location, operator, ast, core, types, top, env, errors
 import strutils, sequtils, terminal
 
 type
@@ -10,8 +10,8 @@ type
 
 proc convertFunction*(node: Node, module: var TripletModule): TripletFunction
 
-proc convert*(ast: Node, definitions: seq[Type], debug: bool=false): TripletModule =
-  var module = TripletModule(file: ast.name, definitions: definitions, functions: @[], env: env.newEnv[int](nil), temps: 0, labels: 0, debug: debug)
+proc convert*(ast: Node, definitions: seq[Type], options: Options = Options(debug: false, test: false)): TripletModule =
+  var module = TripletModule(file: ast.name, definitions: definitions, functions: @[], env: env.newEnv[int](nil), temps: 0, labels: 0, debug: options.debug)
   if ast.kind != AProgram:
     raise newException(RoswellError, "undefined program")
   for function in ast.functions:
@@ -65,15 +65,24 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
       inc function.locals
       result = f
     elif node.function.kind == AOperator:
-      var left = convertNode(node.args[0], module, function)
-      var right = convertNode(node.args[1], module, function)
-      var destination = module.newTemp(node.tag)
-      var triplet = Triplet(kind: TBinary, destination: destination, op: node.function.op, left: left, right: right, location: node.location)
-      triplet.left.triplet = triplet
-      triplet.right.triplet = triplet
-      append triplet
-      inc function.locals
-      result = destination
+      if len(node.args) > 1:
+        var left = convertNode(node.args[0], module, function)
+        var right = convertNode(node.args[1], module, function)
+        var destination = module.newTemp(node.tag)
+        var triplet = Triplet(kind: TBinary, destination: destination, op: node.function.op, left: left, right: right, location: node.location)
+        triplet.left.triplet = triplet
+        triplet.right.triplet = triplet
+        append triplet
+        inc function.locals
+        result = destination
+      else:
+        var u = convertNode(node.args[0], module, function)
+        var destination = module.newTemp(node.tag)
+        var triplet = Triplet(kind: TUnary, destination: destination, unaryOp: node.function.op, u: u, location: node.location)
+        triplet.u.triplet = triplet
+        append triplet
+        inc function.locals
+        result = destination        
     else:
       raise newException(RoswellError, "corrupt node")
   of AReturn:
@@ -99,20 +108,20 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     result = nil
   of AForEach:
     var index = if len(node.forEachIndex) > 0: uLabel(node.forEachIndex, intType) else: module.newTemp(intType)
-    append Triplet(kind: TSave, value: TripletAtom(kind: UConstant, node: Node(kind: AInt, value: 0)), destination: index, isDeref: false, location: node.location)
+    append Triplet(kind: TSave, value: TripletAtom(kind: UInt, i: 0), destination: index, isDeref: false, location: node.location)
     var label = module.newLabel()
     var endLabel = module.newLabel()
     append Triplet(kind: TLabel, l: label, location: node.location)
     assert node.forEachSeq.tag.kind == Complex and node.forEachSeq.tag.label == "Array"
     var limit = parseInt(node.forEachSeq.tag.args[1].label)
     var test = module.newTemp(boolType)
-    append Triplet(kind: TBinary, op: OpLt, left: index, right: TripletAtom(kind: UConstant, node: Node(kind: AInt, value: limit)), destination: test, location: node.location)
+    append Triplet(kind: TBinary, op: OpLt, left: index, right: TripletAtom(kind: UInt, i: limit), destination: test, location: node.location)
     append Triplet(kind: TIf, conditionLabel: test, condition: OpNotEq, label: endLabel)    
     var forEachSeq = convertNode(node.forEachSeq, module, function)
     var iter = uLabel(node.iter, node.forEachSeq.tag.args[0])
     append Triplet(kind: TIndex, indexable: forEachSeq, iindex: index, destination: iter, location: node.location)
     discard convertNode(node.forEachBlock, module, function)
-    append Triplet(kind: TBinary, op: OpAdd, left: index, right: TripletAtom(kind: UConstant, node: Node(kind: AInt, value: 1)), destination: index, location: node.location)
+    append Triplet(kind: TBinary, op: OpAdd, left: index, right: TripletAtom(kind: UInt, i: 1), destination: index, location: node.location)
     append Triplet(kind: TJump, jLocation: label, location: node.location)
     append Triplet(kind: TLabel, l: endLabel, location: node.forEachBlock.nodes[^1].location)
   of AMember:
@@ -129,8 +138,18 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     append Triplet(kind: TSave, value: res, destination: uLabel(node.target, node.res.tag), isDeref: node.isDeref, location: node.location)
     inc function.locals
     result = nil
-  of AInt, AFloat, ABool, AString:
-    result = TripletAtom(kind: UConstant, typ: node.tag, node: node)
+  of AInt:
+    result = TripletAtom(kind: UInt, i: node.value, typ: node.tag)
+  of AEnumValue:
+    result = TripletAtom(kind: UEnum, e: node.e, eValue: node.eValue, typ: node.tag)
+  of AFloat:
+    result = TripletAtom(kind: UFloat, f: node.f, typ: node.tag)
+  of ABool:
+    result = TripletAtom(kind: UBool, b: node.b, typ: node.tag)
+  of AString:
+    result = TripletAtom(kind: UString, s: node.s, typ: node.tag)
+  of AChar:
+    result = TripletAtom(kind: UChar, c: node.c, typ: node.tag)
   of ALabel:
     result = uLabel(node.s, node.tag)
   of AIndex:
@@ -140,13 +159,22 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     var destination = module.newTemp(node.tag)
     append Triplet(kind: TIndex, indexable: indexable, iindex: index, destination: destination, location: node.location)
     result = destination
-  of AArray:
+
+  of AList, AArray:
     var destination = module.newTemp(node.tag)
     if destination.kind != ULabel:
       return
-    append Triplet(kind: TArray, arrayCount: len(node.elements), destination: destination, location: node.location)
-    for j, element in node.elements:
-      discard convertNode(Node(kind: AIndexAssignment, aIndex: Node(kind: AIndex, indexable: Node(kind: ALabel, s: destination.label, tag: node.tag), index: Node(kind: AInt, value: j, tag: intType), tag: node.elements[0].tag), aValue: element, tag: voidType), module, function)
+    if node.kind == AList:
+      append Triplet(kind: TList, destination: destination, location: node.location)
+    else:
+      append Triplet(kind: TArray, arrayCount: len(node.elements), destination: destination, location: node.location)
+    var elements: seq[Node] = @[]
+    if node.kind == AList:
+      elements = node.lElements
+    else:
+      elements = node.elements
+    for j, element in elements:
+      discard convertNode(Node(kind: AIndexAssignment, aIndex: Node(kind: AIndex, indexable: Node(kind: ALabel, s: destination.label, tag: node.tag), index: Node(kind: AInt, value: j, tag: intType), tag: elements[0].tag), aValue: element, tag: voidType), module, function)
     result = destination
   of AIndexAssignment:
     # AIndexAssignment(aIndex: AIndex(@indexable, @index), @aValue) -> Triplet(TIndexSave, $newTemp, !@indexable, !@index, !@aValue)
@@ -167,6 +195,22 @@ proc convertNode*(node: Node, module: var TripletModule, function: var TripletFu
     var destination = module.newTemp(node.tag)
     var derefedObject = convertNode(node.derefedObject, module, function)
     append Triplet(kind: TDeref, destination: destination, derefedObject: derefedObject, location: node.location)
+    result = destination
+  of ADataInstance:
+    var destination = module.newTemp(node.tag)
+    var en = node.tag
+    var enActive = node.tag.active
+    append Triplet(kind: TDataInstance, en: en, destination: destination, enActive: enActive)
+    for z, child in node.enArgs:
+      var a = convertNode(child, module, function)
+      var b = module.newTemp(child.tag)
+      append Triplet(kind: TDataIndexSave, enData: Triplet(kind: TDataIndex, data: destination, dataIndex: z), enValue: a, destination: b, location: node.location)
+    result = destination
+  of ADataIndex:
+    var destination = module.newTemp(node.tag)
+    var data = convertNode(node.data, module, function)
+    data.typ = node.data.tag
+    append Triplet(kind: TDataIndex, destination: destination, data: data, dataIndex: node.dataIndex, location: node.location)
     result = destination
   else:
     result = nil

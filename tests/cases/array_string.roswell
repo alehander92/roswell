@@ -1,0 +1,5 @@
+def main:
+  var x = _['love' 'people']
+  display(x)
+
+# _['love' 'people']

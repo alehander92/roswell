@@ -49,7 +49,7 @@ INT    $0x80
 let cDefinitions*: array[PredefinedLabel, string] = [
   """
 void display(RoswellString* s) {
-  printf("%s\n", s->chars);
+  printf("'%s'\n", s->chars);
 }
   """, # PDisplayDefinition
 

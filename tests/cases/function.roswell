@@ -1,0 +1,14 @@
+Int -> Int
+def name(a):
+  if ==(%(a 2) 0):
+    display('even')
+    return 0
+  else:
+    display('odd')
+    return 1
+
+def main:
+  name(2)
+
+
+# 'even'

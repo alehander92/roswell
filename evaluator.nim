@@ -1,5 +1,7 @@
-import ast, triplet, values, errors, env
+import ast, triplet, operator, values, errors, options, env, top
 import strutils, sequtils, tables
+
+const test = false
 
 template evalAtom*(a: untyped): untyped {.dirty.} =
   var `a` = eval(triplet.`a`, env)
@@ -10,18 +12,18 @@ proc eval*(function: TripletFunction, args: seq[RValue], module: TripletModule, 
 
 proc eval*(atom: TripletAtom, env: var Env[RValue]): RValue =
   case atom.kind:
-  of UConstant:
-    case atom.node.kind:
-    of AInt:
-      result = RValue(kind: RInt, i: atom.node.value)
-    of AFloat:
-      result = RValue(kind: RFloat, f: atom.node.f)
-    of AString:
-      result = RValue(kind: RString, s: atom.node.s)
-    of ABool:
-      result = RValue(kind: RBool, b: atom.node.b)
-    else:
-      result = nil
+  of UInt:
+    result = RValue(kind: RInt, i: atom.i, typ: intType)
+  of UEnum:
+    result = RValue(kind: REnum, e: atom.eValue, typ: atom.typ)
+  of UFloat:
+    result = RValue(kind: RFloat, f: atom.f, typ: floatType)
+  of UString:
+    result = RValue(kind: RString, s: atom.s, typ: stringType)
+  of UBool:
+    result = RValue(kind: RBool, b: atom.b, typ: boolType)
+  of UChar:
+    result = RValue(kind: RChar, c: atom.c, typ: charType)
   of ULabel:
     result = env[atom.label]
 
@@ -46,7 +48,13 @@ proc constOp(op: Operator, left: RValue, right: RValue): RValue =
       of OpMod:     return RValue(kind: RInt,  i: left.i mod right.i)
       of OpEq:      return RValue(kind: RBool, b: left.i == right.i)
       of OpNotEq:   return RValue(kind: RBool, b: left.i != right.i)
+      of OpGt:      return RValue(kind: RBool, b: left.i > right.i)
+      of OpGte:     return RValue(kind: RBool, b: left.i >= right.i)
+      of OpLt:      return RValue(kind: RBool, b: left.i < right.i)
+      of OpLte:     return RValue(kind: RBool, b: left.i <= right.i)
       else:         return left
+  of REnum:
+    return constOp(op, RValue(kind: RInt, i: left.e, typ: intType), RValue(kind: RInt, i: right.e, typ: intType))
   of RString:
     case op:
       of OpAdd: return RValue(kind: RString, s: left.s & right.s)
@@ -55,6 +63,8 @@ proc constOp(op: Operator, left: RValue, right: RValue): RValue =
     raise newException(RoswellError, "can't $1 $2 and $3" % [$op, $left, $right])
 
 proc eval*(triplet: Triplet, env: var Env[RValue], next: var string = "", function: TripletFunction, module: TripletModule, z: int): RValue =
+  when test:
+    echo "EVAL:", triplet
   case triplet.kind:
   of TBinary:
     evalAtom left
@@ -101,8 +111,16 @@ proc eval*(triplet: Triplet, env: var Env[RValue], next: var string = "", functi
   of TIndex:
     evalAtom indexable
     evalAtom iindex
-    assert indexable.kind == RArray and iindex.kind == RInt
-    result = indexable.ar[iindex.i]
+    assert indexable.kind in {RList, RArray, RData} and iindex.kind == RInt
+    if indexable.kind == RList:
+      result = indexable.elements[iindex.i]
+    elif indexable.kind == RArray:
+      result = indexable.ar[iindex.i]
+    else:
+      result = indexable.branch[iindex.i]
+    env[triplet.destination.label] = result
+  of TList:
+    result = RValue(kind: RList, elements: @[])
     env[triplet.destination.label] = result
   of TArray:
     result = RValue(kind: RArray, length: 0, cap: triplet.arrayCount, ar: @[])
@@ -111,12 +129,18 @@ proc eval*(triplet: Triplet, env: var Env[RValue], next: var string = "", functi
     evalAtom sIndexable
     evalAtom sIndex
     evalAtom sValue
-    assert sIndexable.kind == RArray and sIndex.kind == RInt
-    if sIndexable.length - 1 < sIndex.i:
+    assert sIndexable.kind in {RList, RArray} and sIndex.kind == RInt
+    if sIndexable.kind == RList and len(sIndexable.elements) - 1 < sIndex.i:
+      sIndexable.elements = concat(sIndexable.elements, repeat(R_NONE, sIndex.i + 1 - len(sIndexable.elements)))
+    elif sIndexable.kind == RArray and sIndexable.length - 1 < sIndex.i:
       sIndexable.ar = concat(sIndexable.ar, repeat(R_NONE, sIndex.i + 1 - sIndexable.length))
       sIndexable.length = sIndex.i + 1
-    sIndexable.ar[sIndex.i] = sValue
+    if sIndexable.kind == RList:
+      sIndexable.elements[sIndex.i] = sValue
+    elif sIndexable.kind == RArray:
+      sIndexable.ar[sIndex.i] = sValue
     result = sValue
+    env[triplet.destination.label] = result
   of TAddr:
     evalAtom addressObject
     result = RValue(kind: RAddress, address: @[addressObject])
@@ -138,9 +162,28 @@ proc eval*(triplet: Triplet, env: var Env[RValue], next: var string = "", functi
     env[triplet.destination.label] = mValue
   of TMember:
     evalAtom recordObject
-    assert recordObject.kind == RInstance
-    result = recordObject.fields[triplet.recordMember]
+    if recordObject.kind == RInstance:
+      result = recordObject.fields[triplet.recordMember]
+    elif recordObject.kind == RData:
+      result = RValue(kind: REnum, e: recordObject.active, typ: recordObject.typ.dataKind)      
     env[triplet.destination.label] = result
+  of TDataInstance:
+    var f = RValue(kind: RData, active: triplet.enActive, branch: repeat(R_NONE, len(triplet.en.branches[triplet.enActive])), typ: triplet.destination.typ)
+    result = f
+    env[triplet.destination.label] = f
+  of TDataIndex:
+    evalAtom data
+    assert data.kind == RData
+    result = data.branch[triplet.dataIndex]
+    env[triplet.destination.label] = result
+  of TDataIndexSave:
+    evalAtom enValue
+    var f = eval(triplet.enData.data, env)
+    f.branch[triplet.enData.dataIndex] = enValue
+    result = enValue
+    env[triplet.destination.label] = enValue
+  when test:
+    echo "RESULT:", result
 
 proc eval*(function: TripletFunction, args: seq[RValue], module: TripletModule, env: var Env[RValue]): RValue =
   var functionEnv = newEnv[RValue](env)
@@ -165,7 +208,7 @@ proc eval*(function: TripletFunction, args: seq[RValue], module: TripletModule, 
       inc z
   return value
 
-proc eval*(module: TripletModule): RValue =
+proc eval*(module: TripletModule, options: Options = Options(debug: false, test: false)): RValue =
   for f in module.functions:
     if f.label == "main":
       var env = newEnv[RValue](nil)

@@ -3,7 +3,7 @@ import strutils, sequtils, tables
 
 type
   
-  RValueKind* = enum RInt, RFloat, RBool, RString, RNil, RFunction, RArray, RList, REnum, RData, RAddress, RInstance
+  RValueKind* = enum RInt, RFloat, RBool, RString, RChar, RNil, RFunction, RArray, RList, REnum, RData, RAddress, RInstance
 
   RValue* = ref object of RootObj
     typ*: Type
@@ -16,6 +16,8 @@ type
       b*:        bool
     of RString:
       s*:        string
+    of RChar:
+      c*:        char
     of RNil:
       discard
     of RFunction:
@@ -38,6 +40,7 @@ type
       fields*:   Table[string, RValue]
 
 proc `$`*(value: RValue): string =
+  # echo value.kind
   case value.kind:
   of RInt:
     result = $value.i
@@ -46,7 +49,9 @@ proc `$`*(value: RValue): string =
   of RBool:
     result = $value.b
   of RString:
-    result = "\"$1\"" % $value.s
+    result = "'$1'" % $value.s
+  of RChar:
+    result = "$1" % $value.c
   of RNil:
     result = "nil"
   of RFunction:
@@ -87,10 +92,10 @@ proc rDisplay(args: seq[RValue], env: Env[RValue]): RValue =
   of RString:
     echo rText(args, env)
   of RInt:
-    var r = ($rTextInt(args, env))[1..^1]
+    var r = ($rTextInt(args, env))[1..< ^ 1]
     echo r
   else:
-    var r = ($rTextDefault(args, env))[1..^1]
+    var r = ($rTextDefault(args, env))[1.. < ^ 1]
     echo r
   result = R_NONE
 

@@ -1,7 +1,7 @@
 import strutils, tables
 
 type 
-  Backend* = enum BackendAsm, BackendC, BackendCIL, BackendJVM, BackendLLVM
+  Backend* = enum BackendAsm, BackendC, BackendEvaluator, BackendCIL, BackendJVM, BackendLLVM
 
 proc arg*(a: string): Backend =
   case a.toLowerAscii():
@@ -15,5 +15,7 @@ proc arg*(a: string): Backend =
     return BackendJVM
   of "llvm":
     return BackendLLVM
+  else:
+    return BackendAsm
 
 let DefaultRoswellBackend* = BackendAsm

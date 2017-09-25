@@ -1,4 +1,4 @@
-import ast, env, top, core, types, triplet, errors
+import ast, options, env, operator, top, core, types, triplet, errors
 import tables, strutils, sequtils
 
 type
@@ -32,8 +32,8 @@ proc emitFunction(node: TripletFunction, module: var CModule): CFunction
 
 proc emitDefinition(definition: Type, module: var CModule): CDefinition
 
-proc emit*(a: TripletModule, debug: bool): CModule =
-  var module = CModule(file: a.file, definitions: @[], functions: @[], labels: 0, env: newEnv[Type](nil), imports: @[], debug: debug, a: @[])
+proc emit*(a: TripletModule, options: Options = Options(debug: false, test: false)): CModule =
+  var module = CModule(file: a.file, definitions: @[], functions: @[], labels: 0, env: newEnv[Type](nil), imports: @[], debug: options.debug, a: @[])
   for node in a.predefined:
     if node.called:
       module.functions.add(CFunction(label: $node.f, header: "", raw: core.cDefinitions[node.f], locals: ""))
@@ -79,25 +79,27 @@ proc cType(typ: Type): string =
     case typ.label:
       of "Array", "Pointer": "$1*" % cType(typ.args[0])
       of "Function": "*$1($2)" % [cType(typ.args[^1]), typ.args[0..^2].mapIt(cType(it)).join(", ")]
+      of "List": "RoswellList$1*" % cType(typ.args[0])
       else: typ.label
-  of Overload:
-    cType(typ.overloads[0])
   else:
     if typ.label != nil:
       typ.label
     else:
       ""
 
-proc cTypeDecl(typ: Type, label: string, local: bool = false): string =
-  if typ.kind == Overload:
-    result = cTypeDecl(typ.overloads[0], label)
-  elif typ.kind == Complex and typ.label == "Pointer":
+var VALUE_TYPES = ["Int", "Float", "Bool", "String", "Z"]
+
+proc cTypeDecl(typ: Type, label: string, local: bool = false, withRef: bool = true): string =
+  if typ.kind == Complex and typ.label == "Pointer":
     var value = cType(typ.args[0])
     result = "$1* $2" % [value, label]
     if local and len(typ.args) == 2:
       result = "$1 = ($2*)malloc(sizeof($2) * $3)" % [result, value, typ.args[1].label]
   elif typ.kind != Complex or typ.label != "Array" and typ.label != "Function":
-    result = "$1 $2" % [cType(typ), label]
+    if not withRef or typ.kind == Simple and typ.label in VALUE_TYPES or typ.kind == Enum:
+      result = "$1 $2" % [cType(typ), label]
+    else:
+      result = "$1* $2" % [cType(typ), label]
   elif typ.label == "Array":
     result = "$1 $2[$3]" % [cType(typ.args[0]), label, typ.args[1].label]
   else:
@@ -141,7 +143,9 @@ let C_OPERATORS: array[Operator, string] = [
   ">=",   # OpGte
   "<",    # OpLt
   "<=",   # OpLte
-  "^"     # OpXor
+  "^",    # OpXor
+  "!",    # OpNot
+  "@"     # OpAt
 ]
 
 proc emitAtom(atom: TripletAtom, module: var CModule, function: var CFunction, depth: int) =
@@ -153,18 +157,18 @@ proc emitAtom(atom: TripletAtom, module: var CModule, function: var CFunction, d
       module.env[atom.label] = atom.typ
       cem_locals "  $1;\n" % cTypeDecl(atom.typ, atom.label, local=true)
     cem atom.label
-  of UConstant:
-    case atom.node.kind:
-      of AInt:
-        cem $atom.node.value
-      of AString:
-        cem "roswell_string(\"$1\", $2)" % [atom.node.s, $len(atom.node.s)]
-      of AFloat:
-        cem $atom.node.f
-      of ABool:
-        cem (if atom.node.b: "1" else: "0")
-      else:
-        cem ""
+  of UInt:
+    cem $atom.i
+  of UEnum:
+    cem atom.e[1..^1]
+  of UString:
+    cem "roswell_string(\"$1\", $2)" % [atom.s, $len(atom.s)]
+  of UFloat:
+    cem $atom.f
+  of UBool:
+    cem (if atom.b: "1" else: "0")
+  of UChar:
+    cem "'$1'" % $atom.c
 
 proc emitValue(node: Triplet, module: var CModule, function: var CFunction, depth: int): (bool, bool) =
   var offset = repeat("  ", depth)
@@ -182,6 +186,7 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
   of TUnary:
     ema node.destination, 0
     cem " = $1" % C_OPERATORS[node.unaryOp]
+    ema node.u, 0
   of TSave:
     if node.isDeref:
       cem "*"
@@ -218,13 +223,18 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     cem "$1:" % node.l
     result = (true, false) # miss ;
   of TIndex:
+    # echo node.indexable.typ
     ema node.destination, 0
     cem " = "
     ema node.indexable, 0
-    cem "["
-    ema node.iindex, 0
-    cem "]"
-  of TArray:
+    if node.indexable.typ.kind != Data:
+      cem "["
+      ema node.iindex, 0
+      cem "]"
+    else:
+      assert node.iindex.kind == UInt
+      cem "->B$1.t$2" % [$node.indexable.typ.active, $node.iindex.i]
+  of TList, TArray:
     assert node.destination.kind == ULabel
     assert node.destination.typ.kind == Complex
     var label = module.env.getOrDefault(node.destination.label)
@@ -258,13 +268,12 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     ema node.derefedObject, 0
     cem ")"
   of TInstance:
-    cem ""
-    # ema node.destination, 0
-    # cem " = "
-    # cem "($1*)malloc(sizeof($1))" % node.destination.typ.label
+    ema node.destination, 0
+    cem " = "
+    cem "($1*)malloc(sizeof($1))" % node.destination.typ.label
   of TMemberSave:
     ema node.mMember.recordObject, 0
-    cem "."
+    cem "->"
     cem node.mMember.recordMember
     cem " = "
     ema node.mValue, 0
@@ -272,16 +281,42 @@ proc emitValue(node: Triplet, module: var CModule, function: var CFunction, dept
     ema node.destination, 0
     cem " = "
     ema node.mMember.recordObject, 0
-    cem "."
+    cem "->"
     cem node.mMember.recordMember
   of TMember:
     ema node.destination, 0
     cem " = "
     ema node.recordObject, 0
-    cem "."
+    cem "->"
     cem node.recordMember
+  of TDataInstance:
+    ema node.destination, 0
+    cem " = "
+    cem "($1*)malloc(sizeof($1));" % node.destination.typ.label
+    ema node.destination, 0
+    cem "->active = "
+    cem $node.enActive
+  of TDataIndex:
+    ema node.destination, 0
+    cem " = "
+    ema node.data, 0
+    cem "->branches.B$1" % $node.data.typ.active
+    cem ".t$1" % $node.dataIndex
+  of TDataIndexSave:
+    ema node.enData.data, 0
+    cem "->branches.B$1" % $node.enData.data.typ.active
+    cem ".t$1" % $node.enData.dataIndex
+    cem " = "
+    ema node.enValue, 0
+    cem ";"
+    ema node.destination, 0
+    cem " = "
+    ema node.enData.data, 0
+    cem "->branches.B$1" % $node.enData.data.typ.active
+    cem ".t$1" % $node.enData.dataIndex
   else:
     cem ""
+
 
 proc checkArray(node: var TripletFunction, module: var TripletModule) =
   if node.typ.args[^1].kind == Complex and node.typ.args[^1].label == "Array":
@@ -324,22 +359,23 @@ proc emitDefinition(definition: Type, module: var CModule): CDefinition =
   case definition.kind:
   of Record:
     result.header = "typedef struct $1 $1;" % definition.label
-    result.def = "typedef struct {"
+    result.def = "struct $1 {" % definition.label
     for field, t in definition.fields:
       result.def.add("  $1;\n" % cTypeDecl(t, field))
-    result.def.add("} $1;" % definition.label)
+    result.def.add("};")
   of Enum:
-    result.header = "typedef enum $1 $1;" % definition.label
-    result.def = "typedef enum $1 {$2};" % [definition.label, definition.variants.join(", ")]
+    discard
+    # result.header = "typedef enum $1 $1;" % definition.label
+    # result.def = "enum $1 {$2};" % [definition.label, definition.variants.mapIt(it[1..^1]).join(", ")]
   of Data:
-    result.header = "typedef struct $1Data $1Data;" % definition.label
-    result.def = "typedef struct $1Data {\n  $1Enum active;\n  union branches {\n"
+    result.header = "typedef struct $1 $1;" % definition.label
+    result.def = "struct $1 {\n  enum {$2} active;\n  union branches {\n" % [definition.label, definition.dataKind.variants.mapIt(it[1..^1]).join(", ")]
     for z, branch in definition.branches:
       result.def.add("    struct B$1 {\n" % $z)
       for a, t in branch:
-        result.def.add("      $1;\n" % cTypeDecl(t, "t$1" % $a))
-      result.def.add("    }\n")
-    result.def.add("  }\n} $1Data;" % definition.label)
+        result.def.add("      $1;\n" % cTypeDecl(t, "t$1" % $a, withRef=true))
+      result.def.add("    } B$1;\n" % $z)
+    result.def.add("  } branches;\n};")
   else:
     discard
 
@@ -357,6 +393,7 @@ proc cText*(module: CModule): string =
   result.add(module.imports.mapIt(cImport(it)).join("\n"))
   result.add("\n\n")
   result.add(module.a.join("\n"))
+  result.add(module.definitions.mapIt(it.header).join("\n\n"))
   result.add(module.definitions.mapIt(it.def).join("\n\n"))
   result.add(module.functions.filterIt(it.label != "main").mapIt("$1;" % it.header).join("\n"))
   result.add(format(module.functions.mapIt(cDef(it)).join("\n\n"), debug=module.debug))
